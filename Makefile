@@ -1,31 +1,30 @@
-CXX=clang++
-CXXFLAGS=-std=c++17 -fPIC -O2 -Wall
-LDFLAGS=
-SEQAN_INC=`pkg-config --cflags --libs seqan`  # 如果没有 pkg-config，可手动设置 -I/path/to/seqan/include
+# Compiler
+CXX      = clang++
+CXXFLAGS = -std=c++17 -O3 -fPIC -Iinclude
 
-INCLUDE_DIR=include
-SRC_DIR=src
-BUILD_DIR=build
+# Source and object files
+SRC = src/anchor_gen.cpp \
+      src/candidate_retriever.cpp \
+      src/index_query.cpp \
+      src/metrics.cpp \
+      main.cpp
 
-LIBS=$(BUILD_DIR)/libpart1.so $(BUILD_DIR)/libpart2.so $(BUILD_DIR)/libpart3.so
+OBJ = $(SRC:.cpp=.o)
 
-all: dirs $(BUILD_DIR)/main_test
+# Output binary
+TARGET = anchor_mapping
 
-dirs:
-	mkdir -p $(BUILD_DIR)
+# Default rule
+all: $(TARGET)
 
-$(BUILD_DIR)/libpart1.so: $(SRC_DIR)/part1.cpp $(INCLUDE_DIR)/part1.h $(INCLUDE_DIR)/anchor_common.h
-	$(CXX) $(CXXFLAGS) -I$(INCLUDE_DIR) -shared -o $@ $(SRC_DIR)/part1.cpp $(SEQAN_INC)
+# Link final executable
+$(TARGET): $(OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ)
 
-$(BUILD_DIR)/libpart2.so: $(SRC_DIR)/part2.cpp $(INCLUDE_DIR)/part2.h $(INCLUDE_DIR)/anchor_common.h
-	$(CXX) $(CXXFLAGS) -I$(INCLUDE_DIR) -shared -o $@ $(SRC_DIR)/part2.cpp $(SEQAN_INC)
+# Compile each .cpp into .o
+src/%.o: src/%.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/libpart3.so: $(SRC_DIR)/part3.cpp $(INCLUDE_DIR)/part3.h $(INCLUDE_DIR)/anchor_common.h
-	$(CXX) $(CXXFLAGS) -I$(INCLUDE_DIR) -shared -o $@ $(SRC_DIR)/part3.cpp $(SEQAN_INC)
-
-$(BUILD_DIR)/main_test: $(SRC_DIR)/main_test.cpp $(BUILD_DIR)/libpart1.so $(BUILD_DIR)/libpart2.so $(BUILD_DIR)/libpart3.so
-	$(CXX) $(CXXFLAGS) -I$(INCLUDE_DIR) -o $@ $(SRC_DIR)/main_test.cpp -L$(BUILD_DIR) -lpart1 -lpart2 -lpart3 $(SEQAN_INC) -Wl,-rpath,'$$ORIGIN'
+# Clean build files
 clean:
-	rm -rf $(BUILD_DIR) anchors.fasta *.tmp.txt
-
-.PHONY: all clean dirs
+	rm -f src/*.o $(TARGET)
