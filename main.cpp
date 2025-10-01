@@ -177,12 +177,38 @@ std::vector<int> retrieveCandidates_anchor(
     int qlen = (int)query.size();
     if (qlen < k) return {};
 
+    // ---------- Step 1: 计算 query 与所有 anchor 的距离 ----------
+    std::vector<std::pair<std::string,int>> dist_list;
+    dist_list.reserve(anchor_index.size());
+
+    for (const auto &kv : anchor_index) {
+        const std::string &anchor_seq = kv.first;
+        if ((int)anchor_seq.size() != k) continue;
+        int d = min_edit_distance_window(anchor_seq, query);
+        dist_list.emplace_back(anchor_seq, d);
+    }
+
+    if (dist_list.empty()) return {};
+
+    // ---------- Step 2: 排序并选前 20% ----------
+    std::sort(dist_list.begin(), dist_list.end(),
+              [](auto &a, auto &b){ return a.second < b.second; }); // 小于代表从小到大，大于代表从大到小
+    size_t keepN = std::max<size_t>(1, dist_list.size() * 0.2);
+
+    std::unordered_set<std::string> selected;
+    // selected.reserve(keepN * 2);
+    // for (size_t i = 0; i < keepN; i++) {
+    //     selected.insert(dist_list[i].first);
+    // }
+    for (auto &p : dist_list) selected.insert(p.first); //选择全部 anchor
+
     std::vector<std::unordered_set<int>> candidate_sets;
     candidate_sets.reserve(64);
 
     // 对每个 anchor 计算它与 query 的距离 d（最小窗口编辑距离）
     for (const auto &kv : anchor_index) {
         const std::string &anchor_seq = kv.first;
+        if (!selected.count(anchor_seq)) continue;  // 跳过不在前20%的 anchor
         const auto &ref_list = kv.second; // vector<pair<ref_pos, dist_ref>>
 
         // 可选：只处理长度匹配的 anchor（通常 anchor_seq.size() == k）
