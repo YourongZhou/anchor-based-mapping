@@ -1,5 +1,6 @@
 // main.cpp
 
+#include "rng.h"
 #include "fasta_utils_seqan.hpp"
 #include "fastq_utils_seqan.hpp"
 #include "levenshtein.hpp"
@@ -15,6 +16,7 @@
 #include <unordered_set>
 #include <algorithm>
 #include <random>
+#include <cstdlib>
 
 // -----------------------------
 // helpers
@@ -31,7 +33,7 @@ inline std::vector<std::string> simulate_queries(const std::string &ref,
     std::vector<std::string> queries;
     queries.reserve(num_queries);
 
-    static std::mt19937 rng(std::random_device{}());
+    // static std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<size_t> dist(0, ref.size() - query_len);
 
     for (int i = 0; i < num_queries; ++i) {
@@ -60,6 +62,30 @@ inline std::vector<int> find_all_occurrences(const std::string &query,
     }
     return positions;
 }
+
+// 找到所有 query 在某个距离以内的 neighbor
+std::vector<int> find_all_occurrences_approx(
+    const std::string &query,
+    const std::string &ref,
+    int max_dist
+) {
+    std::vector<int> positions;
+    int qlen = query.size();
+    int rlen = ref.size();
+
+    if (qlen > rlen) return positions;
+
+    for (int i = 0; i <= rlen - qlen; i++) {
+        std::string window = ref.substr(i, qlen);
+        int d = levenshtein(query, window);
+        if (d <= max_dist) {
+            positions.push_back(i);
+        }
+    }
+
+    return positions;
+}
+
 
 // 思路：计算 query 与每个 anchor 的编辑距离，若 <= maxDist，则把该 anchor 在 ref 中出现的所有位置加入候选集合。
 inline std::vector<int> retrieveCandidates(const std::string &query,
@@ -172,7 +198,11 @@ std::vector<int> retrieveCandidates_anchor(
     const std::string &query,
     const std::unordered_map<std::string, std::vector<std::pair<int,int>>> &anchor_index,
     int k,              // anchor 长度（仅作安全检查）
-    int max_dist_query  // 扩展窗口大小（d +/- max_dist_query）
+    int max_dist_query, // 扩展窗口大小（d +/- max_dist_query）
+    bool use_all = true, // 是否选择全部 anchor
+    int start_idx = 0,  // 起始比例
+    int end_idx   = 20,  // 结束比例
+    bool last_random = false  // 最后一个是否随机选择（当按顺序选择的时候） 
 ) {
     int qlen = (int)query.size();
     if (qlen < k) return {};
@@ -196,15 +226,39 @@ std::vector<int> retrieveCandidates_anchor(
     size_t keepN = std::max<size_t>(1, dist_list.size() * 0.2);
 
     std::unordered_set<std::string> selected;
-    // selected.reserve(keepN * 2);
-    // for (size_t i = 0; i < keepN; i++) {
-    //     selected.insert(dist_list[i].first);
-    // }
-    for (auto &p : dist_list) selected.insert(p.first); //选择全部 anchor
+    if (use_all){
+         for (auto &p : dist_list) selected.insert(p.first); //选择全部 anchor
+    } else{
+        // size_t start_idx = std::min(dist_list.size(), 
+        //                             std::max<size_t>(0, dist_list.size() * start_idx));
+        // size_t end_idx   = std::min(dist_list.size(), 
+        //                             std::max<size_t>(0, dist_list.size() * end_idx));
+        std::cout << "\nStart and end indexes: " << start_idx << ", " << end_idx;
+        if (!last_random){
+            for (size_t i = start_idx; i < end_idx; i++) {
+                selected.insert(dist_list[i].first);
+            }
+        } else {
+            // 前面按顺序选
+            for (size_t i = start_idx; i < end_idx - 1; i++) {
+                selected.insert(dist_list[i].first);
+            }
+
+            // 随机选最后一个
+            if (end_idx > start_idx) {
+                std::random_device rd;
+                std::mt19937 gen(rd());
+                std::uniform_int_distribution<size_t> dis(start_idx, end_idx - 1);
+                size_t random_i = dis(gen);
+                selected.insert(dist_list[random_i].first);
+            }
+        }
+    }
 
     std::vector<std::unordered_set<int>> candidate_sets;
     candidate_sets.reserve(64);
 
+    double anchor_query_dist = 0.0;
     // 对每个 anchor 计算它与 query 的距离 d（最小窗口编辑距离）
     for (const auto &kv : anchor_index) {
         const std::string &anchor_seq = kv.first;
@@ -218,6 +272,7 @@ std::vector<int> retrieveCandidates_anchor(
 
         // 1) 计算 anchor 与 query 的距离 d（如果 query 比 anchor 长，用最小窗口距离）
         int d = min_edit_distance_window(anchor_seq, query);
+        anchor_query_dist += d;
 
         // 2) 计算允许的 dist_ref 范围
         int low = d - max_dist_query;
@@ -237,6 +292,7 @@ std::vector<int> retrieveCandidates_anchor(
 
         if (!s.empty()) candidate_sets.emplace_back(std::move(s));
     }
+    // std::cout << "\nAverage anchor - query distance: " << anchor_query_dist / selected.size() << " " << selected.size();
 
     if (candidate_sets.empty()) return {};
 
@@ -271,15 +327,79 @@ inline std::vector<std::string> posVecToStrVec(const std::vector<int> &pos) {
     return out;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     // ----- 参数 -----
-    const std::string fasta_path = "/home/luting/nfs/luting_data/AnchorBasedMapping/ecoli/fasta/ecoli.fa";
-    const size_t truncate_ref_len = 10000;   // 只取前 10000 个碱基
-    const size_t anchor_len = 20;            // anchor 长度
-    const int num_anchors = 100;           // anchor 个数
-    const int num_queries = 100;             // query 数量
-    const size_t query_len = 20;             // query 长度
-    const int maxDist = 2;                   // 容差距离
+    std::string fasta_path = "/home/luting/nfs/luting_data/AnchorBasedMapping/ecoli/fasta/ecoli.fa";
+    size_t truncate_ref_len = 10000;    // 只取前 10000 个碱基
+    size_t anchor_len = 20;             // anchor 长度
+    int num_anchors = 100;              // anchor 个数
+    int num_queries = 100;              // query 数量
+    size_t query_len = anchor_len;      // query 长度
+    int maxDist = 3;                    // 容差距离
+    bool use_all = true; // 是否选择全部 anchor
+    double start_idx = 0.0;  // 起始比例
+    double end_idx   = 0.2;  // 结束比例
+    bool last_random = false; // 最后一个随机选
+    unsigned int seed = 42; // 默认
+
+    // ----- 解析命令行参数 -----
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--truncate_ref_len" && i + 1 < argc) {
+            truncate_ref_len = std::stoul(argv[++i]);
+        } else if (arg == "--anchor_len" && i + 1 < argc) {
+            anchor_len = std::stoul(argv[++i]);
+        } else if (arg == "--num_anchors" && i + 1 < argc) {
+            num_anchors = std::stoi(argv[++i]);
+        } else if (arg == "--num_queries" && i + 1 < argc) {
+            num_queries = std::stoi(argv[++i]);
+        } else if (arg == "--maxDist" && i + 1 < argc) {
+            maxDist = std::stoi(argv[++i]);
+        } else if (arg == "--use_all" && i + 1 < argc) {
+            std::string val = argv[++i];
+            if (val == "true" || val == "1") {
+                use_all = true;
+            } else if (val == "false" || val == "0") {
+                use_all = false;
+            } else {
+                std::cerr << "Invalid value for --use_all (expect true/false or 1/0)\n";
+                return 1;
+            }
+        } else if (arg == "--start_idx" && i + 1 < argc) {
+            start_idx = std::stod(argv[++i]);
+        } else if (arg == "--end_idx" && i + 1 < argc) {
+            end_idx = std::stod(argv[++i]);
+        } else if (arg == "--last_random" && i + 1 < argc) {
+            std::string val = argv[++i];
+            if (val == "true" || val == "1") {
+                last_random = true;
+            } else if (val == "false" || val == "0") {
+                last_random = false;
+            } else {
+                std::cerr << "Invalid value for --last_random (expect true/false or 1/0)\n";
+                return 1;
+            }
+        } else if (arg == "--seed" && i + 1 < argc) {
+            seed = std::stoul(argv[++i]);
+        } else {
+            std::cerr << "Unknown or incomplete argument: " << arg << "\n";
+            return 1;
+        }
+    }
+
+    // ----- 打印参数确认 -----
+    std::cout << "fasta_path: " << fasta_path << "\n";
+    std::cout << "truncate_ref_len: " << truncate_ref_len << "\n";
+    std::cout << "anchor_len: " << anchor_len << "\n";
+    std::cout << "num_anchors: " << num_anchors << "\n";
+    std::cout << "num_queries: " << num_queries << "\n";
+    std::cout << "maxDist: " << maxDist << "\n";
+    std::cout << "use_all: " << (use_all ? "true" : "false") << "\n";
+    std::cout << "start_idx: " << start_idx << "\n";
+    std::cout << "end_idx: " << end_idx << "\n";
+    std::cout << "last_random: " << last_random << "\n"; 
+    std::cout << "seed: " << seed << "\n"; 
+    rng.seed(seed);
 
     // ----- 读取 FASTA 并截断 -----
     std::vector<FastaRecord> records;
@@ -309,7 +429,7 @@ int main() {
     std::vector<std::vector<int>> truth_positions;
     truth_positions.reserve(queries.size());
     for (const auto &q : queries) {
-        truth_positions.push_back(find_all_occurrences(q, ref));
+        truth_positions.push_back(find_all_occurrences_approx(q, ref, maxDist));
     }
 
     // ----- 构建 anchor index -----
@@ -317,57 +437,80 @@ int main() {
     auto anchor_index = build_anchor_index(anchors, ref, anchor_len);
 
     // ----- 查询 + 评估 -----
-    int totalTP = 0, totalFP = 0, totalFN = 0;
+    // 用于累加每条 query 的 recall / precision
+    int sumTP = 0;
+    int sumFP = 0;
+    int sumFN = 0;
+    double sumRecall = 0.0;
+    double sumPrecision = 0.0;
     for (size_t i = 0; i < queries.size(); ++i) {
         const auto &q = queries[i];
         const auto &truth_pos = truth_positions[i];
 
         // === 用 anchor-based 检索 ===
-        auto candidates_pos = retrieveCandidates_anchor(q, anchor_index, anchors[0].seq.size(), maxDist);
+        // auto candidates_pos = retrieveCandidates_anchor(q, anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx);
 
-        // === 打印 ===
-        std::cout << "\n=== Query [" << i << "] ===\n";
-        std::cout << "Query seq: " << q << "\n";
+        // // === 打印 ===
+        // std::cout << "\n=== Query [" << i << "] ===\n";
+        // std::cout << "Query seq: " << q << "\n";
 
-        std::cout << "Truth positions (" << truth_pos.size() << "): ";
-        for (auto p : truth_pos) std::cout << p << " ";
-        std::cout << "\n";
-        for (auto p : truth_pos) {
-            if (p + q.size() <= ref.size()) {
-                std::cout << "  Truth seq @ " << p << ": "
-                          << ref.substr(p, q.size()) << "\n";
-            }
-        }
+        // std::cout << "Truth positions (" << truth_pos.size() << "): ";
+        // for (auto p : truth_pos) std::cout << p << " ";
+        // std::cout << "\n";
+        // for (auto p : truth_pos) {
+        //     if (p + q.size() <= ref.size()) {
+        //         std::cout << "  Truth seq @ " << p << ": "
+        //                   << ref.substr(p, q.size()) << "\n";
+        //     }
+        // }
 
-        std::cout << "Candidate positions (" << candidates_pos.size() << "): ";
-        for (auto p : candidates_pos) std::cout << p << " ";
-        std::cout << "\n";
-        for (auto p : candidates_pos) {
-            if (p + q.size() <= ref.size()) {
-                std::cout << "  Candidate seq @ " << p << ": "
-                          << ref.substr(p, q.size()) << "\n";
-            }
-        }
+        // std::cout << "Candidate positions (" << candidates_pos.size() << "): ";
+        // for (auto p : candidates_pos) std::cout << p << " ";
+        // std::cout << "\n";
+        // for (auto p : candidates_pos) {
+        //     if (p + q.size() <= ref.size()) {
+        //         std::cout << "  Candidate seq @ " << p << ": "
+        //                   << ref.substr(p, q.size()) << "\n";
+        //     }
+        // }
 
         // === metrics ===
-        auto truth_str = posVecToStrVec(truth_pos);
-        auto cand_str  = posVecToStrVec(candidates_pos);
+        const auto &truth_str = posVecToStrVec(truth_positions[i]);
+        const auto &cand_str  = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random));
 
-        metrics::report(truth_str, cand_str);
-        totalTP += metrics::countTP(truth_str, cand_str);
-        totalFP += metrics::countFP(truth_str, cand_str);
-        totalFN += metrics::countFN(truth_str, cand_str);
+        int tp = metrics::countTP(truth_str, cand_str);
+        int fp = metrics::countFP(truth_str, cand_str);
+        int fn = metrics::countFN(truth_str, cand_str);
+
+        double recall = (tp + fn > 0) ? double(tp) / double(tp + fn) : 0.0;
+        double precision = (tp + fp > 0) ? double(tp) / double(tp + fp) : 0.0;
+
+        sumTP += tp;
+        sumFP += fp;
+        sumFN += fn;
+        sumRecall += recall;
+        sumPrecision += precision;
+        // metrics::report(truth_str, cand_str);
     }
 
     // ----- overall -----
-    std::cout << "\n===== Overall Metrics =====\n";
-    std::cout << "Total TP: " << totalTP << "\n";
-    std::cout << "Total FP: " << totalFP << "\n";
-    std::cout << "Total FN: " << totalFN << "\n";
-    double recall = (totalTP + totalFN > 0) ? double(totalTP) / double(totalTP + totalFN) : 0.0;
-    double precision = (totalTP + totalFP > 0) ? double(totalTP) / double(totalTP + totalFP) : 0.0;
-    std::cout << "Overall Recall: " << recall << "\n";
-    std::cout << "Overall Precision: " << precision << "\n";
+    std::cout << "\n===== Experiment Parameters =====\n";
+    std::cout << "Reference length truncated to: " << truncate_ref_len << " bp\n";
+    std::cout << "Anchor/Query length: " << anchor_len << "\n";
+    std::cout << "Number of anchors: " << num_anchors << "\n";
+    std::cout << "Number of queries: " << num_queries << "\n";
+    std::cout << "Maximum allowed distance: " << maxDist << "\n";
+
+    // 平均每条 query 的指标
+    double avgRecall = sumRecall / queries.size();
+    double avgPrecision = sumPrecision / queries.size();
+
+    std::cout << "\n===== Average per-query Metrics =====\n";
+    std::cout << "Average TP: " << (double)sumTP / queries.size() << "\n";
+    std::cout << "Average FP: " << (double)sumFP / queries.size() << "\n";
+    std::cout << "Average FN: " << (double)sumFN / queries.size() << "\n";
+    std::cout << "Average Recall: " << avgRecall << "\n";
+    std::cout << "Average Precision: " << avgPrecision << "\n";
 
     return 0;
 }

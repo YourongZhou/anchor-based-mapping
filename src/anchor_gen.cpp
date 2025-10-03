@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <cstdlib>
+#include "rng.h"
 #include "fasta_utils_seqan.hpp"
 #include "anchor_gen.h"
 
@@ -21,7 +22,7 @@ std::vector<FastaRecord> generate_anchors_from_fasta(
     std::vector<FastaRecord> anchors;
     anchors.reserve(num_anchors);
 
-    static std::mt19937 rng(std::random_device{}());
+    // static std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<size_t> record_dist(0, records.size() - 1);
 
     size_t generated = 0;
@@ -74,7 +75,7 @@ int anchor_gen_main(int argc, char** argv) {
         return 1;
     }
 
-    std::mt19937_64 rng(123456789ULL);
+    // std::mt19937_64 rng(123456789ULL);
     std::vector<FastaRecord> anchors;
     for (const auto &r : recs) {
         const std::string &s = r.seq;
@@ -99,7 +100,7 @@ inline std::string random_anchor_from_seq(const std::string &seq, size_t k) {
     if (seq.size() < k) {
         throw std::runtime_error("Sequence shorter than anchor length k");
     }
-    static std::mt19937 rng(std::random_device{}());
+    // static std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<size_t> dist(0, seq.size() - k);
     size_t start = dist(rng);
     return seq.substr(start, k);

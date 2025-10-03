@@ -7,6 +7,7 @@ SRC = src/anchor_gen.cpp \
       src/candidate_retriever.cpp \
       src/index_query.cpp \
       src/metrics.cpp \
+      src/rng.cpp \
       main.cpp
 
 OBJ = $(SRC:.cpp=.o)
