@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <cstdlib>
+#include <unordered_set>
 #include "rng.h"
 #include "fasta_utils_seqan.hpp"
 #include "anchor_gen.h"
@@ -22,23 +23,41 @@ std::vector<FastaRecord> generate_anchors_from_fasta(
     std::vector<FastaRecord> anchors;
     anchors.reserve(num_anchors);
 
-    // static std::mt19937 rng(std::random_device{}());
+    std::unordered_set<std::string> seen;  // 用来去重
+    seen.reserve(num_anchors * 2);         // 预留容量，避免频繁扩展
+
     std::uniform_int_distribution<size_t> record_dist(0, records.size() - 1);
 
     size_t generated = 0;
+    size_t attempts = 0; // 防止死循环
+
     while (generated < num_anchors) {
         const auto &rec = records[record_dist(rng)];
         if (rec.seq.size() < k) {
             // 跳过太短的序列
             continue;
         }
+
         std::string anchor_seq = random_anchor_from_seq(rec.seq, k);
+
+        // 如果重复，就跳过
+        if (seen.find(anchor_seq) != seen.end()) {
+            attempts++;
+            if (attempts > num_anchors * 10) {
+                throw std::runtime_error("Too many duplicate anchors, cannot reach desired num_anchors");
+            }
+            continue;
+        }
+
+        // 记录 & 保存
+        seen.insert(anchor_seq);
         anchors.push_back({rec.id + "_anchor_" + std::to_string(generated), anchor_seq});
         generated++;
     }
 
     return anchors;
 }
+
 
 // 从单条 reference 序列直接生成 anchors
 std::vector<FastaRecord> generate_anchors_from_seq(

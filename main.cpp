@@ -234,6 +234,7 @@ std::vector<int> retrieveCandidates_anchor(
         // size_t end_idx   = std::min(dist_list.size(), 
         //                             std::max<size_t>(0, dist_list.size() * end_idx));
         std::cout << "\nStart and end indexes: " << start_idx << ", " << end_idx;
+        std::cout << "\nlength of dist_list: " << dist_list.size();
         if (!last_random){
             for (size_t i = start_idx; i < end_idx; i++) {
                 selected.insert(dist_list[i].first);
@@ -292,7 +293,7 @@ std::vector<int> retrieveCandidates_anchor(
 
         if (!s.empty()) candidate_sets.emplace_back(std::move(s));
     }
-    // std::cout << "\nAverage anchor - query distance: " << anchor_query_dist / selected.size() << " " << selected.size();
+    std::cout << "\nAverage anchor - query distance: " << anchor_query_dist / selected.size() << " " << selected.size();
 
     if (candidate_sets.empty()) return {};
 
@@ -419,6 +420,20 @@ int main(int argc, char* argv[]) {
     // ----- 生成 anchors -----
     auto anchors = generate_anchors_from_seq(ref, "ref1", anchor_len, num_anchors);
     std::cout << "Generated " << anchors.size() << " anchors\n";
+    // 用 set 检查去重后数量
+    std::unordered_set<std::string> uniq;
+    for (auto &a : anchors) {
+        uniq.insert(a.seq);   // 注意这里用 seq，而不是 id
+    }
+
+    std::cout << "Unique anchors: " << uniq.size() << std::endl;
+
+    // 如果有重复，提示
+    if (uniq.size() < anchors.size()) {
+        std::cout << "Warning: Found " 
+                  << (anchors.size() - uniq.size()) 
+                  << " duplicate anchors!" << std::endl;
+    }
 
     // ----- 生成 queries -----
     auto queries = simulate_queries(ref, num_queries, query_len);
