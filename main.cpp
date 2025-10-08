@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <random>
 #include <cstdlib>
+#include <nlohmann/json.hpp>
+
 
 // -----------------------------
 // helpers
@@ -202,7 +204,8 @@ std::vector<int> retrieveCandidates_anchor(
     bool use_all = true, // 是否选择全部 anchor
     int start_idx = 0,  // 起始比例
     int end_idx   = 20,  // 结束比例
-    bool last_random = false  // 最后一个是否随机选择（当按顺序选择的时候） 
+    bool last_random = false,  // 最后一个是否随机选择（当按顺序选择的时候） 
+    int anchor_radius = 3
 ) {
     int qlen = (int)query.size();
     if (qlen < k) return {};
@@ -215,7 +218,10 @@ std::vector<int> retrieveCandidates_anchor(
         const std::string &anchor_seq = kv.first;
         if ((int)anchor_seq.size() != k) continue;
         int d = min_edit_distance_window(anchor_seq, query);
-        dist_list.emplace_back(anchor_seq, d);
+
+        // ✅ 只保留距离在 anchor_radius 以内的 anchor
+        if (d <= anchor_radius)
+            dist_list.emplace_back(anchor_seq, d);
     }
 
     if (dist_list.empty()) return {};
@@ -341,7 +347,8 @@ int main(int argc, char* argv[]) {
     double start_idx = 0.0;  // 起始比例
     double end_idx   = 0.2;  // 结束比例
     bool last_random = false; // 最后一个随机选
-    unsigned int seed = 42; // 默认
+    unsigned int seed = 42; // 默认 seed
+    int anchor_radius = 3; // 选择的 anchor 到 query 的距离
 
     // ----- 解析命令行参数 -----
     for (int i = 1; i < argc; ++i) {
@@ -382,6 +389,8 @@ int main(int argc, char* argv[]) {
             }
         } else if (arg == "--seed" && i + 1 < argc) {
             seed = std::stoul(argv[++i]);
+        } else if (arg == "--anchor_radius" && i + 1 < argc) {
+            end_idx = std::stod(argv[++i]);
         } else {
             std::cerr << "Unknown or incomplete argument: " << arg << "\n";
             return 1;
@@ -398,7 +407,8 @@ int main(int argc, char* argv[]) {
     std::cout << "use_all: " << (use_all ? "true" : "false") << "\n";
     std::cout << "start_idx: " << start_idx << "\n";
     std::cout << "end_idx: " << end_idx << "\n";
-    std::cout << "last_random: " << last_random << "\n"; 
+    std::cout << "last_random: " << last_random << "\n";
+    std::cout << "anchor radius: " << anchor_radius << "\n"; 
     std::cout << "seed: " << seed << "\n"; 
     rng.seed(seed);
 
@@ -450,6 +460,19 @@ int main(int argc, char* argv[]) {
     // ----- 构建 anchor index -----
     std::cout << "Building anchor index:\n";
     auto anchor_index = build_anchor_index(anchors, ref, anchor_len);
+    using json = nlohmann::json;
+
+    json j;
+    for (auto &[seq, matches] : anchor_index) {
+        for (auto &[pos, dist] : matches) {
+            j["anchors"].push_back({{"seq", seq}, {"pos", pos}, {"dist", dist}});
+        }
+    }
+    j["queries"] = queries;
+
+    std::ofstream out("anchor_index.json");
+    out << j.dump(2);
+
 
     // ----- 查询 + 评估 -----
     // 用于累加每条 query 的 recall / precision
@@ -458,6 +481,9 @@ int main(int argc, char* argv[]) {
     int sumFN = 0;
     double sumRecall = 0.0;
     double sumPrecision = 0.0;
+    double sum_fp_over_tp = 0.0;
+    double sum_avg_dist = 0.0;
+    double sum_max_dist = 0.0;
     for (size_t i = 0; i < queries.size(); ++i) {
         const auto &q = queries[i];
         const auto &truth_pos = truth_positions[i];
@@ -496,15 +522,22 @@ int main(int argc, char* argv[]) {
         int tp = metrics::countTP(truth_str, cand_str);
         int fp = metrics::countFP(truth_str, cand_str);
         int fn = metrics::countFN(truth_str, cand_str);
+        auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_str);
+
 
         double recall = (tp + fn > 0) ? double(tp) / double(tp + fn) : 0.0;
         double precision = (tp + fp > 0) ? double(tp) / double(tp + fp) : 0.0;
+        double fp_over_tp = double(fp) / double(tp);
+
 
         sumTP += tp;
         sumFP += fp;
         sumFN += fn;
         sumRecall += recall;
         sumPrecision += precision;
+        sum_fp_over_tp += fp_over_tp;
+        sum_avg_dist += avg_dist;
+        sum_max_dist += max_dist;
         // metrics::report(truth_str, cand_str);
     }
 
@@ -526,6 +559,9 @@ int main(int argc, char* argv[]) {
     std::cout << "Average FN: " << (double)sumFN / queries.size() << "\n";
     std::cout << "Average Recall: " << avgRecall << "\n";
     std::cout << "Average Precision: " << avgPrecision << "\n";
+    std::cout << "Average FP/TP: " << sum_fp_over_tp << "\n";
+    std::cout << "Average average distance: " << sum_avg_dist << "\n";
+    std::cout << "Average maximum distance: " << sum_max_dist << "\n";
 
     return 0;
 }

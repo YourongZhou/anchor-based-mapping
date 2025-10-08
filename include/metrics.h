@@ -25,6 +25,10 @@ int countFP(const std::vector<std::string> &truth,
 int countFN(const std::vector<std::string> &truth,
               const std::vector<std::string> &candidates);
 
+std::pair<double, int> evaluateDistances(
+    const std::string &query,
+    const std::vector<std::string> &candidates);
+
 /// 打印简单的正确性与效率报告
 void report(const std::vector<std::string> &truth,
             const std::vector<std::string> &candidates);

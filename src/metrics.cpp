@@ -5,6 +5,8 @@
 #include <string>
 #include <algorithm>
 #include <iostream>
+#include "levenshtein.hpp"
+
 
 namespace metrics {
 
@@ -37,6 +39,27 @@ int countFN(const std::vector<std::string>& truth,
             fn++;
     return fn;
 }
+
+std::pair<double, int> evaluateDistances(
+    const std::string &query,
+    const std::vector<std::string> &candidates)
+{
+    if (candidates.empty())
+        return {0.0, 0};
+
+    double totalDist = 0.0;
+    int maxDist = 0;
+
+    for (const auto &c : candidates) {
+        int d = levenshtein(query, c);
+        totalDist += d;
+        if (d > maxDist) maxDist = d;
+    }
+
+    double avgDist = totalDist / static_cast<double>(candidates.size());
+    return {avgDist, maxDist};
+}
+
 
 // 打印 report
 void report(const std::vector<std::string>& truth,
