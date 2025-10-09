@@ -42,7 +42,8 @@ int countFN(const std::vector<std::string>& truth,
 
 std::pair<double, int> evaluateDistances(
     const std::string &query,
-    const std::vector<std::string> &candidates)
+    const std::vector<std::string> &candidates,
+    const std::string &ref)
 {
     if (candidates.empty())
         return {0.0, 0};
@@ -50,8 +51,13 @@ std::pair<double, int> evaluateDistances(
     double totalDist = 0.0;
     int maxDist = 0;
 
-    for (const auto &c : candidates) {
-        int d = levenshtein(query, c);
+    for (const auto &c_str : candidates) {
+        int pos = std::stoi(c_str); // 将字符串转为整数索引
+        if (pos + query.size() > ref.size()) continue; // 防止越界
+
+        std::string candidate = ref.substr(pos, query.size());
+
+        int d = levenshtein(query, candidate);
         totalDist += d;
         if (d > maxDist) maxDist = d;
     }

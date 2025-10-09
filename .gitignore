@@ -1,0 +1,4 @@
+anchor_index.json
+test/fig/*
+test/csv/*
+test/*.txt

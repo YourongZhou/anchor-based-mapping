@@ -89,27 +89,27 @@ std::vector<int> find_all_occurrences_approx(
 }
 
 
-// 思路：计算 query 与每个 anchor 的编辑距离，若 <= maxDist，则把该 anchor 在 ref 中出现的所有位置加入候选集合。
-inline std::vector<int> retrieveCandidates(const std::string &query,
-                                           const std::vector<FastaRecord> &anchors,
-                                           const std::string &ref,
-                                           int maxDist = 5) {
-    std::unordered_set<int> cand_set;
-    for (const auto &a : anchors) {
-        int d = levenshtein(a.seq, query);
-        if (d <= maxDist) {
-            // 找到这个 anchor 在 ref 中出现的所有位置
-            auto pos_list = find_all_occurrences(a.seq, ref);
-            for (int p : pos_list) cand_set.insert(p);
-        }
-    }
-    // to vector + sort
-    std::vector<int> cands;
-    cands.reserve(cand_set.size());
-    for (int p : cand_set) cands.push_back(p);
-    std::sort(cands.begin(), cands.end());
-    return cands;
-}
+// // 思路：计算 query 与每个 anchor 的编辑距离，若 <= maxDist，则把该 anchor 在 ref 中出现的所有位置加入候选集合。
+// inline std::vector<int> retrieveCandidates(const std::string &query,
+//                                            const std::vector<FastaRecord> &anchors,
+//                                            const std::string &ref,
+//                                            int maxDist = 5) {
+//     std::unordered_set<int> cand_set;
+//     for (const auto &a : anchors) {
+//         int d = levenshtein(a.seq, query);
+//         if (d <= maxDist) {
+//             // 找到这个 anchor 在 ref 中出现的所有位置
+//             auto pos_list = find_all_occurrences(a.seq, ref);
+//             for (int p : pos_list) cand_set.insert(p);
+//         }
+//     }
+//     // to vector + sort
+//     std::vector<int> cands;
+//     cands.reserve(cand_set.size());
+//     for (int p : cand_set) cands.push_back(p);
+//     std::sort(cands.begin(), cands.end());
+//     return cands;
+// }
 
 // Anchor 数据结构加上预计算表
 struct AnchorIndex {
@@ -205,10 +205,14 @@ std::vector<int> retrieveCandidates_anchor(
     int start_idx = 0,  // 起始比例
     int end_idx   = 20,  // 结束比例
     bool last_random = false,  // 最后一个是否随机选择（当按顺序选择的时候） 
-    int anchor_radius = 3
+    int anchor_radius = 3,
+    size_t* dist_count = nullptr  // 新增指针参数
 ) {
     int qlen = (int)query.size();
-    if (qlen < k) return {};
+    if (qlen < k) { 
+        if (dist_count) *dist_count = 0;
+        return {};
+    }
 
     // ---------- Step 1: 计算 query 与所有 anchor 的距离 ----------
     std::vector<std::pair<std::string,int>> dist_list;
@@ -261,6 +265,9 @@ std::vector<int> retrieveCandidates_anchor(
             }
         }
     }
+
+    if (dist_count) *dist_count = dist_list.size();  // 保存数量
+
 
     std::vector<std::unordered_set<int>> candidate_sets;
     candidate_sets.reserve(64);
@@ -325,6 +332,52 @@ std::vector<int> retrieveCandidates_anchor(
     return result;
 }
 
+// 判断 query 是否有任意 anchor 距离小于阈值（利用 anchor_index）
+bool hasNearbyAnchor(
+    const std::string &query,
+    const std::unordered_map<std::string, std::vector<std::pair<int,int>>> &anchor_index,
+    int max_dist_query)
+{
+    int k = anchor_index.begin()->first.size();  // anchor 长度（假设非空）
+    bool found = false;
+
+    // 遍历 anchor_index 的每个 anchor
+    for (const auto &[anchor_seq, matches] : anchor_index) {
+        // 如果这个 anchor 在 reference 中的匹配距离都比 query 长度大太多，就可以跳过（可选优化）
+
+        // 直接计算 query 与 anchor_seq 的编辑距离（带 early exit）
+        int dist = levenshtein_with_threshold(query, anchor_seq, max_dist_query);
+        if (dist < max_dist_query) {
+            found = true;
+            break;
+        }
+    }
+    return found;
+}
+
+// 过滤 queries：只保留在 anchor_index 范围内有相近 anchor 的 query
+std::vector<std::string> filter_queries_by_anchor_index(
+    const std::vector<std::string> &queries,
+    const std::unordered_map<std::string, std::vector<std::pair<int,int>>> &anchor_index,
+    int max_dist_query)
+{
+    std::vector<std::string> filtered;
+    filtered.reserve(queries.size());
+
+    for (const auto &q : queries) {
+        if (hasNearbyAnchor(q, anchor_index, max_dist_query)) {
+            filtered.push_back(q);
+        }
+    }
+
+    std::cout << "Filtered queries: " << filtered.size()
+              << " / " << queries.size()
+              << " retained ("
+              << (100.0 * filtered.size() / queries.size())
+              << "%)\n";
+    return filtered;
+}
+
 
 // 小工具：把 int positions 转成 string id （用于复用现有 string-based metrics）
 inline std::vector<std::string> posVecToStrVec(const std::vector<int> &pos) {
@@ -341,7 +394,6 @@ int main(int argc, char* argv[]) {
     size_t anchor_len = 20;             // anchor 长度
     int num_anchors = 100;              // anchor 个数
     int num_queries = 100;              // query 数量
-    size_t query_len = anchor_len;      // query 长度
     int maxDist = 3;                    // 容差距离
     bool use_all = true; // 是否选择全部 anchor
     double start_idx = 0.0;  // 起始比例
@@ -390,12 +442,13 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--seed" && i + 1 < argc) {
             seed = std::stoul(argv[++i]);
         } else if (arg == "--anchor_radius" && i + 1 < argc) {
-            end_idx = std::stod(argv[++i]);
+            anchor_radius = std::stod(argv[++i]);
         } else {
             std::cerr << "Unknown or incomplete argument: " << arg << "\n";
             return 1;
         }
     }
+    size_t query_len = anchor_len;      // query 长度
 
     // ----- 打印参数确认 -----
     std::cout << "fasta_path: " << fasta_path << "\n";
@@ -447,19 +500,24 @@ int main(int argc, char* argv[]) {
 
     // ----- 生成 queries -----
     auto queries = simulate_queries(ref, num_queries, query_len);
-    std::cout << "Simulated " << queries.size() << " queries\n";
-
-    // ----- ground truth -----
-    std::cout << "Generating ground truths:\n";
-    std::vector<std::vector<int>> truth_positions;
-    truth_positions.reserve(queries.size());
-    for (const auto &q : queries) {
-        truth_positions.push_back(find_all_occurrences_approx(q, ref, maxDist));
-    }
+    std::cout << "Simulated " << num_queries << " queries\n";
 
     // ----- 构建 anchor index -----
     std::cout << "Building anchor index:\n";
     auto anchor_index = build_anchor_index(anchors, ref, anchor_len);
+
+    // 只保留周围某个距离内有 anchor 的 query
+    queries = filter_queries_by_anchor_index(queries, anchor_index, 3);
+    num_queries = queries.size();
+
+    // ----- ground truth -----
+    std::cout << "Generating ground truths:\n";
+    std::vector<std::vector<int>> truth_positions;
+    truth_positions.reserve(num_queries);
+    for (const auto &q : queries) {
+        truth_positions.push_back(find_all_occurrences_approx(q, ref, maxDist));
+    }
+
     using json = nlohmann::json;
 
     json j;
@@ -484,7 +542,9 @@ int main(int argc, char* argv[]) {
     double sum_fp_over_tp = 0.0;
     double sum_avg_dist = 0.0;
     double sum_max_dist = 0.0;
-    for (size_t i = 0; i < queries.size(); ++i) {
+    std::vector<size_t> dist_counts(num_queries);
+
+    for (size_t i = 0; i < num_queries; ++i) {
         const auto &q = queries[i];
         const auto &truth_pos = truth_positions[i];
 
@@ -516,19 +576,20 @@ int main(int argc, char* argv[]) {
         // }
 
         // === metrics ===
+        size_t count = 0;  // 保存 dist_list.size()
         const auto &truth_str = posVecToStrVec(truth_positions[i]);
-        const auto &cand_str  = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random));
+        const auto &cand_str  = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random, anchor_radius = anchor_radius, &count));
+        dist_counts[i] = count;
 
         int tp = metrics::countTP(truth_str, cand_str);
         int fp = metrics::countFP(truth_str, cand_str);
         int fn = metrics::countFN(truth_str, cand_str);
-        auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_str);
+        auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_str, ref);
 
 
         double recall = (tp + fn > 0) ? double(tp) / double(tp + fn) : 0.0;
         double precision = (tp + fp > 0) ? double(tp) / double(tp + fp) : 0.0;
-        double fp_over_tp = double(fp) / double(tp);
-
+        double fp_over_tp = (tp > 0) ? double(fp) / double(tp) : 0.0;
 
         sumTP += tp;
         sumFP += fp;
@@ -541,6 +602,14 @@ int main(int argc, char* argv[]) {
         // metrics::report(truth_str, cand_str);
     }
 
+    // 保存到文件
+    std::ofstream ofs("dist_counts_radius_" + std::to_string(anchor_radius) + ".txt");
+
+    for (auto c : dist_counts) {
+        ofs << c << "\n";
+    }
+    ofs.close();
+
     // ----- overall -----
     std::cout << "\n===== Experiment Parameters =====\n";
     std::cout << "Reference length truncated to: " << truncate_ref_len << " bp\n";
@@ -550,18 +619,21 @@ int main(int argc, char* argv[]) {
     std::cout << "Maximum allowed distance: " << maxDist << "\n";
 
     // 平均每条 query 的指标
-    double avgRecall = sumRecall / queries.size();
-    double avgPrecision = sumPrecision / queries.size();
+    double avgRecall = sumRecall / num_queries;
+    double avgPrecision = sumPrecision / num_queries;
+    double avg_fp_over_tp = sum_fp_over_tp / num_queries;
+    double avg_avg_dist = sum_avg_dist / num_queries;
+    double avg_max_dist = sum_max_dist / num_queries;
 
     std::cout << "\n===== Average per-query Metrics =====\n";
-    std::cout << "Average TP: " << (double)sumTP / queries.size() << "\n";
-    std::cout << "Average FP: " << (double)sumFP / queries.size() << "\n";
-    std::cout << "Average FN: " << (double)sumFN / queries.size() << "\n";
+    std::cout << "Average TP: " << (double)sumTP / num_queries << "\n";
+    std::cout << "Average FP: " << (double)sumFP / num_queries << "\n";
+    std::cout << "Average FN: " << (double)sumFN / num_queries << "\n";
     std::cout << "Average Recall: " << avgRecall << "\n";
     std::cout << "Average Precision: " << avgPrecision << "\n";
-    std::cout << "Average FP/TP: " << sum_fp_over_tp << "\n";
-    std::cout << "Average average distance: " << sum_avg_dist << "\n";
-    std::cout << "Average maximum distance: " << sum_max_dist << "\n";
+    std::cout << "Average FP/TP: " << avg_fp_over_tp << "\n";
+    std::cout << "Average average distance: " << avg_avg_dist << "\n";
+    std::cout << "Average maximum distance: " << avg_max_dist << "\n";
 
     return 0;
 }
