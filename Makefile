@@ -10,6 +10,7 @@ SRC = src/anchor_gen.cpp \
       src/rng.cpp \
       src/tools.cpp \
       main.cpp
+#       src/test.cpp \
 
 OBJ = $(SRC:.cpp=.o)
 

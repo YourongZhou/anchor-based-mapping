@@ -3,3 +3,6 @@ main_1.cpp
 test/fig/*
 test/csv/*
 test/*.txt
+test/csv/sweep_results_anchor_full.csv
+test/csv/sweep_results_idx.csv
+test/csv/sweep_results_max_dist.csv

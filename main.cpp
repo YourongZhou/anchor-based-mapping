@@ -34,7 +34,8 @@ int main(int argc, char* argv[]) {
     double start_idx = 0.0;  // 起始比例
     double end_idx   = 0.2;  // 结束比例
     bool last_random = false; // 最后一个随机选
-    unsigned int seed = 42; // 默认 seed
+    unsigned int seed = 42; //  默认 seed
+    bool use_anchor_radius = false; // 默认不用某个距离内的 anchor
     int anchor_radius = 3; // 选择的 anchor 到 query 的距离
 
     // ----- 解析命令行参数 -----
@@ -141,9 +142,9 @@ int main(int argc, char* argv[]) {
     std::cout << "Building anchor index:\n";
     auto anchor_index = build_anchor_index(anchors, ref, anchor_len);
 
-    // 只保留周围某个距离内有 anchor 的 query
-    queries = filter_queries_by_anchor_index(queries, anchor_index, 3);
-    num_queries = queries.size();
+    // // 只保留周围某个距离内有 anchor 的 query
+    // queries = filter_queries_by_anchor_index(queries, anchor_index, 3);
+    // num_queries = queries.size();
 
     // ----- ground truth -----
     std::cout << "Generating ground truths:\n";
@@ -220,7 +221,6 @@ int main(int argc, char* argv[]) {
         int fp = metrics::countFP(truth_str, cand_str);
         int fn = metrics::countFN(truth_str, cand_str);
         auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_str, ref);
-
 
         double recall = (tp + fn > 0) ? double(tp) / double(tp + fn) : 0.0;
         double precision = (tp + fp > 0) ? double(tp) / double(tp + fp) : 0.0;
