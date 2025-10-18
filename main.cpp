@@ -75,7 +75,7 @@ void build_mtree_from_ref(const std::string &ref, int k, MTree &tree) {
         inserted.insert(subseq);
 
         count++;
-        if (count % 100 == 0)
+        if (count % 1000 == 0)
             std::cout << "Inserted " << count << " unique anchors into MTree." << std::endl;
     }
 
@@ -86,12 +86,12 @@ void build_mtree_from_ref(const std::string &ref, int k, MTree &tree) {
 vector<int> retrieveCandidates_mtree(
     MTree &mtree,
     const std::string &query,
-    int anchor_radius)
+    int maxDist)
 {
     std::vector<int> results;
 
     Substring query_anchor{query, -1}; // pos = -1 表示查询
-    auto matches = mtree.get_nearest_by_range(query_anchor, anchor_radius);
+    auto matches = mtree.get_nearest_by_range(query_anchor, maxDist);
 
     for (auto it = matches.begin(); it != matches.end(); ++it) {
         const auto &res = *it;  // res 包含 (obj, distance)
@@ -325,6 +325,8 @@ int main(int argc, char* argv[]) {
         SplitFunc()  // split function
     );
 
+    build_mtree_from_ref(ref, anchor_len, mtree);
+
     // // ----- 生成 anchors -----
     // auto anchors = generate_anchors_from_seq(ref, "ref1", anchor_len, num_anchors);
     // cout << "Generated " << anchors.size() << " anchors\n";
@@ -422,7 +424,7 @@ int main(int argc, char* argv[]) {
         // === metrics ===
         size_t count = 0;  // 保存 dist_list.size()
         const auto &truth_str = posVecToStrVec(truth_positions[i]);
-        const auto &cand_str  = posVecToStrVec(retrieveCandidates_mtree(mtree, queries[i], anchor_radius));
+        const auto &cand_str  = posVecToStrVec(retrieveCandidates_mtree(mtree, queries[i], maxDist));
         // const auto &cand_str  = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random, anchor_radius = anchor_radius, &count));
         dist_counts[i] = count;
 
