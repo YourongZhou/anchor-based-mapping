@@ -208,8 +208,53 @@ struct split_function {
 				DistanceFunction& distance_function
 			) const
 	{
+		// --- promotion ---
 		std::pair<Data, Data> promoted = promotion_function(first_partition, distance_function);
+
+		// --- 记录原始的全部数据点，用于统计 ---
+		std::vector<Data> all_data(first_partition.begin(), first_partition.end());
+
+		// --- partition ---
 		partition_function(promoted, first_partition, second_partition, distance_function);
+
+		// --- 统计部分 ---
+		size_t total_points = all_data.size();
+		size_t first_count = first_partition.size();
+		size_t second_count = second_partition.size();
+
+		// 计算 range
+		double range_first = 0.0;
+		for (const auto& d : first_partition)
+			range_first = std::max(range_first, distance_function(d, promoted.first));
+
+		double range_second = 0.0;
+		for (const auto& d : second_partition)
+			range_second = std::max(range_second, distance_function(d, promoted.second));
+
+		// 统计“落在另一边 range 内”的点
+		size_t cross_to_second = 0;
+		for (const auto& d : second_partition) {
+			double dist1 = distance_function(d, promoted.first);
+			if (dist1 <= range_first)
+				++cross_to_second;
+		}
+
+		size_t cross_to_first = 0;
+		for (const auto& d : first_partition) {
+			double dist2 = distance_function(d, promoted.second);
+			if (dist2 <= range_second)
+				++cross_to_first;
+		}
+
+		std::cout << "---- Split stats ----\n";
+		std::cout << "Total points: " << total_points << "\n";
+		std::cout << "First partition: " << first_count << "\n";
+		std::cout << "Second partition: " << second_count << "\n";
+		std::cout << "Cross to second: " << cross_to_second << "\n";
+		std::cout << "Cross to first: " << cross_to_first << "\n";
+		std::cout << "---------------------\n";
+
+		// --- 返回 ---
 		return promoted;
 	}
 };

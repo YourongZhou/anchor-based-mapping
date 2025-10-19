@@ -603,7 +603,7 @@ protected:
 #endif
 	}
 
-private:
+public:
 
 	typedef std::pair<Data, Data> PromotedPair;
 	typedef std::set<Data> Partition;

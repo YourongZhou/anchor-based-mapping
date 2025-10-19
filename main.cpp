@@ -100,126 +100,49 @@ vector<int> retrieveCandidates_mtree(
     return results;
 }
 
-// // 使用 mtree 与 cached_distance_function
-// // LevWrapper: 把你已有的 levenshtein 包装为返回 double 的函数对象
-// struct LevWrapper {
-//     double operator()(const string &a, const string &b) const {
-//         return static_cast<double>(levenshtein(a, b));
-//     }
-// };
-// using Distance = functions::euclidean_distance;
+// // 递归遍历所有节点
+// template <typename Data, typename Distance, typename SplitFunc>
+// void traverse_mtree_levels(
+//     typename mtree<Data, Distance, SplitFunc>::Node* node,
+//     int level,
+//     std::map<int, std::vector<float>>& radii_by_level
+// ) {
+//     if (!node) return;
 
-// // 类型别名（重用 functions::cached_distance_function）
-// using CachedLev = functions::cached_distance_function<string, LevWrapper>;
+//     // 遍历该节点的每个 entry
+//     for (const auto& entry : node->entries) {
+//         // 记录该 entry 的覆盖半径
+//         radii_by_level[level].push_back(entry.radius);
 
-// using SplitFunc = functions::split_function<functions::random_promotion, functions::balanced_partition>;
-
-// // mtree 的具体类型：Data = string, DistanceFunction = CachedLev
-// typedef mtree<
-// 		string,
-// 		functions::euclidean_distance,
-// 		functions::split_function<
-// 				functions::random_promotion,
-// 				functions::balanced_partition
-// 			>
-// 	>
-// 	MTree;
-
-// // 全局索引（mtree 主索引 + sequence -> list of ref positions）
-// static unique_ptr<MTree> global_mtree_ptr = nullptr;
-// static unordered_map<string, vector<pair<int,int>>> global_anchor_index; 
-// // note: pair = (ref_pos, dist_ref). In our simple build below we store dist_ref==0 for exact occurrences.
-
-// // ----------------- 构建 M-tree（替换原生成 anchors / build_anchor_index 的部分） -----------------
-// /*
-//   参数:
-//     ref: reference sequence
-//     k:   k-mer length (anchor_len)
-//     max_distance_store: 当 >0 时，可用于决定是否在 anchor_index 中存储与窗口的距离（此处我们只存 exact occurrences => dist_ref = 0）
-// */
-// void build_mtree_from_ref(const string &ref, int k, int max_distance_store = 0) {
-//     if (k <= 0) return;
-//     int ref_len = (int)ref.size();
-//     if (ref_len < k) {
-//         cerr << "Reference shorter than k\n";
-//         return;
-//     }
-
-//     // 1) 构造 distance wrapper 与 cached wrapper
-//     LevWrapper lev;
-//     CachedLev cached(lev); // cached_distance_function 的构造：explicit cached_distance_function(const DistanceFunction&)
-
-//     // 2) 构造 split function（使用默认 random_promotion + balanced_partition）
-//     SplitFunc splitf; // 默认构造
-
-//     // 3) 创建 mtree：使用较小的 min capacity(2) 方便小样本，max=-1 表示用默认
-//     global_mtree_ptr = make_unique<MTree>(2 /*min*/, -1 /*max*/, cached, splitf);
-
-//     // 4) 遍历 ref 所有 k-substring，去重后插入 mtree，并记录位置到 anchor_index（dist_ref=0）
-//     unordered_set<string> seen;
-//     seen.reserve(ref_len - k + 1);
-
-//     int total_substrings = ref_len - k + 1;
-//     int inserted_unique = 0;
-
-//     for (int pos = 0; pos < total_substrings; ++pos) {
-//         string sub = ref.substr(pos, k);
-
-//         // 记录位置（无论是否首次出现，都把 pos 加到 global_anchor_index[sub]）
-//         // dist_ref = 0 因为 sub == ref.substr(pos,k)
-//         global_anchor_index[sub].emplace_back(pos, 0);
-
-//         // 如果是首次出现，则把序列插入 M-tree
-//         if (seen.insert(sub).second) {
-//             global_mtree_ptr->add(sub); // add(const Data& data)
-//             ++inserted_unique;
-//             if (inserted_unique % 100 == 0) {
-//                 cout << "[M-tree] inserted " << inserted_unique << " unique substrings\n";
-//             }
+//         // 若该 entry 有子节点，则递归下去
+//         if (entry.child != nullptr) {
+//             traverse_mtree_levels<Data, Distance, SplitFunc>(entry.child, level + 1, radii_by_level);
 //         }
 //     }
-
-//     cout << "[M-tree] build complete. unique anchors = " << inserted_unique
-//               << ", total windows = " << total_substrings << "\n";
 // }
 
-// // ----------------- 简洁版的检索函数（只接受 query 和 anchor_radius） -----------------
-// /*
-//   返回值与原 retrieveCandidates_anchor 兼容：vector<int>（ref positions，已排序）
-//   行为：
-//     1. 用 global_mtree_ptr->get_nearest_by_range(query, anchor_radius) 找到所有与 query 距离 <= anchor_radius 的 anchor strings；
-//     2. 对每个 anchor string，从 global_anchor_index 中取出它的所有 ref_pos（我们在 build 时已经记录了这些位置）；
-//     3. 把这些 ref_pos 去重、排序后返回。
-// */
-// vector<int> retrieveCandidates_mtree(const string &query, int anchor_radius) {
-//     vector<int> result;
-//     if (!global_mtree_ptr) return result;
-//     if ((int)query.size() == 0) return result;
+// // 打印统计信息
+// template <typename Data, typename Distance, typename SplitFunc>
+// void print_mtree_radius_distribution(const mtree<Data, Distance, SplitFunc>& tree) {
+//     std::map<int, std::vector<float>> radii_by_level;
+//     traverse_mtree_levels<Data, Distance, SplitFunc>(tree.root, 0, radii_by_level);
 
-//     // get_nearest_by_range 返回 mtree::query（可迭代），元素类型含 .data (Data) 和 .distance (double)
-//     auto q = global_mtree_ptr->get_nearest_by_range(query, static_cast<double>(anchor_radius));
-
-//     unordered_set<int> pos_set;
-//     pos_set.reserve(1024);
-
-//     for (auto it = q.begin(); it != q.end(); ++it) {
-//         const auto &res = *it;
-//         const string &anchor_seq = res.data; // Data = string
-
-//         // 在 anchor_index 里找所有位置
-//         auto map_it = global_anchor_index.find(anchor_seq);
-//         if (map_it == global_anchor_index.end()) continue;
-
-//         for (const auto &pr : map_it->second) {
-//             int ref_pos = pr.first;
-//             pos_set.insert(ref_pos);
+//     std::cout << "\n===== M-tree Radius Distribution =====" << std::endl;
+//     for (const auto& [level, radii] : radii_by_level) {
+//         double mean = 0, maxr = 0, minr = 1e9;
+//         for (auto r : radii) {
+//             mean += r;
+//             maxr = std::max(maxr, (double)r);
+//             minr = std::min(minr, (double)r);
 //         }
+//         mean /= radii.size();
+//         std::cout << "Level " << level
+//                   << " | Nodes: " << radii.size()
+//                   << " | mean radius = " << mean
+//                   << " | min = " << minr
+//                   << " | max = " << maxr
+//                   << std::endl;
 //     }
-
-//     result.reserve(pos_set.size());
-//     for (int p : pos_set) result.push_back(p);
-//     sort(result.begin(), result.end());
-//     return result;
 // }
 
 
@@ -326,6 +249,8 @@ int main(int argc, char* argv[]) {
     );
 
     build_mtree_from_ref(ref, anchor_len, mtree);
+    // 输出mtree各层次半径
+    // print_mtree_radius_distribution(mtree);
 
     // // ----- 生成 anchors -----
     // auto anchors = generate_anchors_from_seq(ref, "ref1", anchor_len, num_anchors);
