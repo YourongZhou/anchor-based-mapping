@@ -244,6 +244,7 @@ int main(int argc, char* argv[]) {
     MTree mtree(
         2,              // min node capacity
         -1,             // max node capacity
+        5,
         Distance(),     // 距离函数
         SplitFunc()  // split function
     );

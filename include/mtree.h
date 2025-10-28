@@ -434,15 +434,19 @@ public:
 	 * @param distance_function An instance of @c DistanceFunction.
 	 * @param split_function An instance of @c SplitFunction.
 	 *
+	 * @param leaf_radius_threshold The threshold of leaf node, when radius < threshold
+	 * 		  the min_node_capacity can be overlooked.
 	 */
 	explicit mtree(
 			size_t min_node_capacity = DEFAULT_MIN_NODE_CAPACITY,
 			size_t max_node_capacity = -1,
+			double leaf_radius_threshold = 5,
 			const DistanceFunction& distance_function = DistanceFunction(),
 			const SplitFunction& split_function = SplitFunction()
 		)
 		: minNodeCapacity(min_node_capacity),
 		  maxNodeCapacity(max_node_capacity),
+		  leafRadiusThreshold(leaf_radius_threshold),
 		  root(NULL),
 		  distance_function(distance_function),
 		  split_function(split_function)
@@ -611,6 +615,7 @@ public:
 
 	size_t minNodeCapacity;
 	size_t maxNodeCapacity;
+	size_t leafRadiusThreshold;
 	Node* root;
 
 protected:
@@ -742,6 +747,17 @@ private:
 	public:
 		void checkMaxCapacity(const mtree* mtree) {
 			if(children.size() > mtree->maxNodeCapacity) {
+
+				// 判断是否是 LeafNode
+				const LeafNode* leafNode = dynamic_cast<const LeafNode*>(this);
+				// 只有当它是 LeafNode 时，才应用半径超载规则
+        		if (leafNode != nullptr) {
+					double currentRadius = this->radius;
+					if (currentRadius < mtree->leafRadiusThreshold) {
+						// 尽管超载，但是半径紧凑，可以跳过分裂
+						return;
+					}
+				}
 				Partition firstPartition;
 				for(typename ChildrenMap::iterator i = children.begin(); i != children.end(); ++i) {
 					firstPartition.insert(i->first);

@@ -6,3 +6,4 @@ test/*.txt
 test/csv/sweep_results_anchor_full.csv
 test/csv/sweep_results_idx.csv
 test/csv/sweep_results_max_dist.csv
+dist_counts_radius_3.txt
