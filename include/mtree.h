@@ -8,6 +8,8 @@
 #include <queue>
 #include <utility>
 #include <cassert>
+
+#include "mtree_types.h"
 #include "functions.h"
 
 
@@ -42,34 +44,62 @@ namespace mt {
 template <
 	typename Data,
 	typename DistanceFunction = ::mt::functions::euclidean_distance,
-	typename SplitFunction = ::mt::functions::split_function<
+	typename SplitStrategy = ::mt::functions::TwoWaySplitStrategy<
 	        ::mt::functions::random_promotion,
 	        ::mt::functions::balanced_partition
 		>
+	// typename SplitFunction = ::mt::functions::split_function<
+	//         ::mt::functions::random_promotion,
+	//         ::mt::functions::balanced_partition
+	// 	>
 >
 class mtree {
 public:
 	typedef DistanceFunction distance_function_type;
-	typedef SplitFunction    split_function_type;
+	typedef SplitStrategy split_strategy_type;
+	// typedef SplitFunction    split_function_type;
 	typedef functions::cached_distance_function<Data, DistanceFunction> cached_distance_function_type;
 
 private:
 	class Node;
 	class Entry;
 
-
 	// Exception classes
 	class SplitNodeReplacement {
 	public:
-		enum { NUM_NODES = 2 };
-		Node* newNodes[NUM_NODES];
-		SplitNodeReplacement(Node* newNodes[NUM_NODES]) {
-			for(int i = 0; i < NUM_NODES; ++i) {
-				this->newNodes[i] = newNodes[i];
-			}
+		// 使用 std::vector 存储新节点，支持任意数量
+		std::vector<Node*> newNodes;
 
+		/**
+		 * @brief 构造函数：接受一个包含所有新节点的 vector。
+		 * @param newNodes 包含所有 k 个新节点的 vector。
+		 */
+		SplitNodeReplacement(std::vector<Node*> newNodes) 
+			// 使用 std::move 提高效率，避免不必要的深拷贝
+			: newNodes(std::move(newNodes)) 
+		{
+			// 确保至少有两个新节点（因为是分裂操作）
+			if (this->newNodes.size() < 2) {
+				std::cerr << "Error: SplitNodeReplacement created with less than 2 nodes." << std::endl;
+			}
+		}
+		
+		// 获取新节点数量
+		size_t numNewNodes() const {
+			return newNodes.size();
 		}
 	};
+	// class SplitNodeReplacement {
+	// public:
+	// 	enum { NUM_NODES = 2 };
+	// 	Node* newNodes[NUM_NODES];
+		// SplitNodeReplacement(Node* newNodes[NUM_NODES]) {
+		// 	for(int i = 0; i < NUM_NODES; ++i) {
+		// 		this->newNodes[i] = newNodes[i];
+		// 	}
+
+		// }
+	// };
 
 	class RootNodeReplacement {
 	public:
@@ -442,14 +472,16 @@ public:
 			size_t max_node_capacity = -1,
 			double leaf_radius_threshold = 5,
 			const DistanceFunction& distance_function = DistanceFunction(),
-			const SplitFunction& split_function = SplitFunction()
+			const SplitStrategy& split_strategy = SplitStrategy()
+			// const SplitFunction& split_function = SplitFunction()
 		)
 		: minNodeCapacity(min_node_capacity),
 		  maxNodeCapacity(max_node_capacity),
 		  leafRadiusThreshold(leaf_radius_threshold),
 		  root(NULL),
 		  distance_function(distance_function),
-		  split_function(split_function)
+		  split_strategy(split_strategy)
+		//   split_function(split_function)
 	{
 		if(max_node_capacity == size_t(-1)) {
 			this->maxNodeCapacity = 2 * min_node_capacity - 1;
@@ -466,7 +498,8 @@ public:
 		  maxNodeCapacity(that.maxNodeCapacity),
 		  minNodeCapacity(that.minNodeCapacity),
 		  distance_function(that.distance_function),
-		  split_function(that.split_function)
+		  split_strategy(that.split_strategy)
+		//   split_function(that.split_function)
 	{
 		that.root = NULL;
 	}
@@ -487,7 +520,8 @@ public:
 			this->minNodeCapacity = that.minNodeCapacity;
 			this->maxNodeCapacity = that.maxNodeCapacity;
 			this->distance_function = std::move(that.distance_function);
-			this->split_function = std::move(that.split_function);
+			this->split_strategy = std::move(that.split_strategy);
+			// this->split_function = std::move(that.split_function);
 		}
 		return *this;
 	}
@@ -511,7 +545,7 @@ public:
 				Node* newRoot = new RootNode(root->data);
 				delete root;
 				root = newRoot;
-				for(int i = 0; i < SplitNodeReplacement::NUM_NODES; ++i) {
+				for(int i = 0; i < e.newNodes.size(); ++i) {
 					Node* newNode = e.newNodes[i];
 					double distance = distance_function(root->data, newNode->data);
 					root->addChild(newNode, distance, this);
@@ -609,8 +643,9 @@ protected:
 
 public:
 
-	typedef std::pair<Data, Data> PromotedPair;
-	typedef std::set<Data> Partition;
+	// // typedef std::pair<Data, Data> PromotedPair;
+	// typedef std::set<Data> Partition;
+	// typedef std::vector<std::pair<Data, Partition>> SplitResult;
 
 
 	size_t minNodeCapacity;
@@ -620,7 +655,8 @@ public:
 
 protected:
 	DistanceFunction distance_function;
-	SplitFunction split_function;
+	SplitStrategy split_strategy;
+	// SplitFunction split_function;
 
 public:
 	class IndexItem {
@@ -751,39 +787,79 @@ private:
 				// 判断是否是 LeafNode
 				const LeafNode* leafNode = dynamic_cast<const LeafNode*>(this);
 				// 只有当它是 LeafNode 时，才应用半径超载规则
-        		if (leafNode != nullptr) {
-					double currentRadius = this->radius;
+			double currentRadius = this->radius;
+       		if (leafNode != nullptr) {
 					if (currentRadius < mtree->leafRadiusThreshold) {
 						// 尽管超载，但是半径紧凑，可以跳过分裂
 						return;
 					}
 				}
-				Partition firstPartition;
+				Partition all_entries;
 				for(typename ChildrenMap::iterator i = children.begin(); i != children.end(); ++i) {
-					firstPartition.insert(i->first);
+					all_entries.insert(i->first);
 				}
 
 				cached_distance_function_type cachedDistanceFunction(mtree->distance_function);
 
-				Partition secondPartition;
-				PromotedPair promoted = mtree->split_function(firstPartition, secondPartition, cachedDistanceFunction);
+				// 更新后的 partition 方法
+				SplitResult<Data> partitions_result = mtree->split_strategy(all_entries, cachedDistanceFunction, currentRadius);
+				// 检查分裂结果是否有效（至少要有两个分区）
+				assert(partitions_result.size() >= 2);
 
-				Node* newNodes[2];
-				for(int i = 0; i < 2; ++i) {
-					Data& promotedData    = (i == 0) ? promoted.first : promoted.second;
-					Partition& partition = (i == 0) ? firstPartition : secondPartition;
+				// 创建一个用于替代当前节点的新节点列表，长度为 k
+				std::vector<Node*> newNodes;
+				
+				// 遍历 SplitResult 中的每个分区
+				for (const auto& partition_pair : partitions_result) {
+					const Data& promotedData = partition_pair.first;
+					const Partition& partition = partition_pair.second;
 
+					// a. 为当前分区创建新的节点 (Node)
+					// newSplitNodeReplacement(promotedData) 应该返回一个新的 InternalNode 或 LeafNode
 					Node* newNode = newSplitNodeReplacement(promotedData);
+					
+					// b. 将原节点的孩子（IndexItem*）移动到新节点中
 					for(typename Partition::iterator j = partition.begin(); j != partition.end(); ++j) {
-						const Data& data = *j;
-						IndexItem* child = children[data];
-						children.erase(data);
+						const Data& data = *j; // 这是孩子节点的 key (Entry key)
+						
+						// 找到原节点中对应的孩子指针
+						// 注意：由于 all_entries 已被 splitStrategy 清空，我们需要使用 children 映射
+						// 确保孩子节点在 children 中存在
+						assert(children.count(data)); 
+						
+						IndexItem* child = children[data]; // 获取孩子指针
+						children.erase(data);              // 从当前节点移除孩子
+
+						// 计算新推广数据到孩子的距离
 						double distance = cachedDistanceFunction(promotedData, data);
+						
+						// 将孩子添加到新的节点中
 						newNode->addChild(child, distance, mtree);
 					}
-
-					newNodes[i] = newNode;
+					
+					// 将新创建的节点添加到列表中
+					newNodes.push_back(newNode);
 				}
+
+				// Partition secondPartition;
+				// PromotedPair promoted = mtree->split_function(all_entries, secondPartition, cachedDistanceFunction);
+
+				// Node* newNodes[2];
+				// for(int i = 0; i < 2; ++i) {
+				// 	Data& promotedData    = (i == 0) ? promoted.first : promoted.second;
+				// 	Partition& partition = (i == 0) ? all_entries : secondPartition;
+
+				// 	Node* newNode = newSplitNodeReplacement(promotedData);
+				// 	for(typename Partition::iterator j = partition.begin(); j != partition.end(); ++j) {
+				// 		const Data& data = *j;
+				// 		IndexItem* child = children[data];
+				// 		children.erase(data);
+				// 		double distance = cachedDistanceFunction(promotedData, data);
+				// 		newNode->addChild(child, distance, mtree);
+				// 	}
+
+				// 	newNodes[i] = newNode;
+				// }
 				assert(children.empty());
 
 				throw SplitNodeReplacement(newNodes);
@@ -939,7 +1015,7 @@ private:
 				assert(_ == 1);
 				delete child;
 
-				for(int i = 0; i < e.NUM_NODES; ++i) {
+				for(int i = 0; i < e.newNodes.size(); ++i) {
 					Node* newChild = e.newNodes[i];
 					double distance = mtree->distance_function(this->data, newChild->data);
 					addChild(newChild, distance, mtree);
@@ -993,7 +1069,7 @@ private:
 						assert(_ == 1);
 						delete existingChild;
 
-						for(int i = 0; i < e.NUM_NODES; ++i) {
+						for(int i = 0; i < e.newNodes.size(); ++i) {
 							Node* newNode = e.newNodes[i];
 							double distance = mtree->distance_function(this->data, newNode->data);
 							newChildren.push_back(ChildWithDistance{newNode, distance});

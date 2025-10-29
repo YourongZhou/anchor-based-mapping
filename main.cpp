@@ -27,19 +27,6 @@
 using namespace std;
 using namespace mt;
 
-// ======================== 类型定义 ========================
-struct Substring {
-    std::string seq;
-    int pos;
-
-    bool operator==(const Substring &other) const {
-        return seq == other.seq && pos == other.pos;
-    }
-
-    bool operator<(const Substring& other) const {
-        return seq < other.seq;
-    }
-};
 
 // Levenshtein 距离封装，只比较 seq
 struct SubstringLevDist {
@@ -53,12 +40,17 @@ using Distance = SubstringLevDist;
 using CachedDistance = functions::cached_distance_function<Data, Distance>;
 
 // split function 类型定义
-using SplitFunc = functions::split_function<
+using SplitStrategyType = functions::TwoWaySplitStrategy<
     functions::random_promotion,
-    functions::balanced_partition>;
+    functions::balanced_partition
+>;
+// using SplitStrategyType = functions::OptimizedKSplitStrategy;
+// using SplitFunc = functions::split_function<
+//     functions::random_promotion,
+//     functions::balanced_partition>;
 
 // 定义最终 MTree 类型
-using MTree = mtree<Data, Distance, SplitFunc>;
+using MTree = mtree<Data, Distance, SplitStrategyType>;
 
 // ======================== 构建函数 ========================
 void build_mtree_from_ref(const std::string &ref, int k, MTree &tree) {
@@ -246,7 +238,7 @@ int main(int argc, char* argv[]) {
         -1,             // max node capacity
         5,
         Distance(),     // 距离函数
-        SplitFunc()  // split function
+        SplitStrategyType()  // split function
     );
 
     build_mtree_from_ref(ref, anchor_len, mtree);
