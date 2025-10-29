@@ -59,6 +59,9 @@ public:
 	typedef SplitStrategy split_strategy_type;
 	// typedef SplitFunction    split_function_type;
 	typedef functions::cached_distance_function<Data, DistanceFunction> cached_distance_function_type;
+	// --- 紧凑性分裂的配置参数 ---
+    size_t minCompactnessThreshold; // 触发紧凑性分裂的最小节点容量
+    double preSplitRadiusRatio;     // 触发紧凑性分裂的半径膨胀比例
 
 private:
 	class Node;
@@ -100,6 +103,12 @@ private:
 
 		// }
 	// };
+
+	class CompactnessPromotion {
+	public:
+		Node* promotedNode; // 携带被提升的新节点
+		explicit CompactnessPromotion(Node* new_node) : promotedNode(new_node) {}
+	};
 
 	class RootNodeReplacement {
 	public:
@@ -471,6 +480,8 @@ public:
 			size_t min_node_capacity = DEFAULT_MIN_NODE_CAPACITY,
 			size_t max_node_capacity = -1,
 			double leaf_radius_threshold = 5,
+			size_t min_compact_thresh = 5, // 触发紧凑性分裂的最小节点容量
+			double pre_split_ratio = 2,     // 触发紧凑性分裂的半径膨胀比例
 			const DistanceFunction& distance_function = DistanceFunction(),
 			const SplitStrategy& split_strategy = SplitStrategy()
 			// const SplitFunction& split_function = SplitFunction()
@@ -478,6 +489,8 @@ public:
 		: minNodeCapacity(min_node_capacity),
 		  maxNodeCapacity(max_node_capacity),
 		  leafRadiusThreshold(leaf_radius_threshold),
+		  minCompactnessThreshold(min_compact_thresh),
+		  preSplitRadiusRatio(pre_split_ratio),
 		  root(NULL),
 		  distance_function(distance_function),
 		  split_strategy(split_strategy)
@@ -550,6 +563,25 @@ public:
 					double distance = distance_function(root->data, newNode->data);
 					root->addChild(newNode, distance, this);
 				}
+			} catch(CompactnessPromotion& promo) {
+				std::cout << "root node compact!" << std::endl;
+				// --- CATCH 2: 紧凑性提升 (新增) ---
+				// 根节点拒绝了 promo.promotedNode
+				// 我们需要创建一个新的根节点来同时容纳旧根节点和这个新节点
+				
+				Node* newRoot = new RootNode(Data()); // 新的根
+				Node* oldRoot = root;                     // 旧的根
+				Node* promotedNode = promo.promotedNode; // 被提升的节点
+				
+				root = newRoot; // 更新 mtree 的根
+
+				// 1. 将旧根节点添加为新根的子节点
+				double oldRootDist = distance_function(root->data, oldRoot->data);
+				root->addChild(oldRoot, oldRootDist, this);
+
+				// 2. 将被提升的节点添加为新根的子节点
+				double promotedDist = distance_function(root->data, promotedNode->data);
+				root->addChild(promotedNode, promotedDist, this);
 			}
 		}
 	}
@@ -714,6 +746,8 @@ private:
 				delete child;
 			}
 		}
+
+		virtual Node* newNode(const mtree* mtree) const = 0;
 
 		void addData(const Data& data, double distance, const mtree* mtree) {
 			doAddData(data, distance, mtree);
@@ -940,6 +974,24 @@ private:
 
 	class LeafNodeTrait : public virtual Node {
 		void doAddData(const Data& data, double distance, const mtree* mtree) {
+			// 1. 紧凑性检查 (在叶节点级别)
+			// (distance 是新数据点到当前叶节点中心的距离)
+			if (this->children.size() >= mtree->minCompactnessThreshold &&
+				distance > (this->radius * mtree->preSplitRadiusRatio)) 
+			{
+				std::cout << "leaf node compact!" << std::endl;
+				// --- 失败：触发紧凑性提升 ---
+				// "新建一个节点，抛出异常
+				Node* promotedNode = this->newNode(mtree);
+				promotedNode->data = data;
+				// 使用 addChild 插入，避免递归检查
+				promotedNode->addChild(new Entry(data), 0.0, mtree); 
+				
+				// 抛出异常，阻止数据插入到当前节点
+				throw CompactnessPromotion(promotedNode);
+			}
+			
+			// 2. 紧凑性检查通过：正常插入
 			Entry* entry = new Entry(data);
 			assert(this->children.find(data) == this->children.end());
 			this->children[data] = entry;
@@ -1006,6 +1058,28 @@ private:
 			try {
 				child->addData(data, chosen.distance, mtree);
 				this->updateRadius(child);
+			} catch(CompactnessPromotion& promo) {
+				std::cout << "non leaf node compact!" << std::endl;
+				// --- 场景 1: 捕获到紧凑性提升 (C1 抛出了 C_n) ---
+				Node* promotedChildNode = promo.promotedNode; // 这就是 C_n
+				// "判断 B1到 C_n的距离会不会导致B1 的半径扩大太大"
+				double newDistance = mtree->distance_function(this->data, promotedChildNode->data);
+
+				// 3. 父节点 (B1) 检查自己的紧凑性
+				if (this->children.size() >= mtree->minCompactnessThreshold &&
+					newDistance > (this->radius * mtree->preSplitRadiusRatio))
+				{
+					// --- 失败：B1 也被破坏了 ---
+					// "新建一个B_n，其子节点是C_n，然后继续向上抛出异常"
+					// 创建 B_n
+					Node* newParentNode = this->newNode(mtree);
+					// 将 C_n 作为 B_n 的子节点
+					newParentNode->addChild(promotedChildNode, newDistance, mtree);
+					// 将 B_n 向上抛给 A
+					throw CompactnessPromotion(newParentNode);
+				} else {
+					this->addChild(promotedChildNode, newDistance, mtree);
+				}
 			} catch(SplitNodeReplacement& e) {
 				// Replace current child with new nodes
 #ifndef NDEBUG
@@ -1054,10 +1128,13 @@ private:
 					// Transfer the _children_ of the newChild to the existingChild
 					for(typename Node::ChildrenMap::iterator i = newChild->children.begin(); i != newChild->children.end(); ++i) {
 						IndexItem* grandchild = i->second;
-						existingChild->addChild(grandchild, grandchild->distanceToParent, mtree);
+						double distanceToExistingChild = mtree->distance_function(existingChild->data, grandchild->data);
+						existingChild->addChild(grandchild, distanceToExistingChild, mtree);
 					}
 					newChild->children.clear();
 					delete newChild;
+
+					this->updateRadius(existingChild);
 
 					try {
 						existingChild->checkMaxCapacity(mtree);
@@ -1203,11 +1280,23 @@ private:
 		void _checkMinCapacity(const mtree* mtree) const {
 			assert(this->children.size() >= 1);
 		}
+
+		RootLeafNode(const mtree* mtree) : Node(Data()) {}
+
+		Node* newNode(const mtree* mtree) const override {
+			return new RootLeafNode(mtree);
+		}
 	};
 
 	class RootNode : public RootNodeTrait, public NonLeafNodeTrait {
 	public:
 		RootNode(const Data& data) : Node(data) {}
+
+		RootNode(const mtree* mtree) : Node(Data()) {}
+		
+		Node* newNode(const mtree* mtree) const override {
+			return new RootNode(mtree);
+		}
 
 	private:
 		void removeData(const Data& data, double distance, const mtree* mtree) {
@@ -1249,12 +1338,24 @@ private:
 	class InternalNode : public NonRootNodeTrait, public NonLeafNodeTrait {
 	public:
 		InternalNode(const Data& data) : Node(data) { }
+
+		InternalNode(const mtree* mtree) : Node(Data()) {}
+
+		Node* newNode(const mtree* mtree) const override {
+			return new InternalNode(mtree);
+		}
 	};
 
 
 	class LeafNode : public NonRootNodeTrait, public LeafNodeTrait {
 	public:
 		LeafNode(const Data& data) : Node(data) { }
+
+		LeafNode(const mtree* mtree) : Node(Data()) {}
+
+		Node* newNode(const mtree* mtree) const override {
+			return new LeafNode(mtree);
+		}
 	};
 
 

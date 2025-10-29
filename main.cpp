@@ -40,11 +40,11 @@ using Distance = SubstringLevDist;
 using CachedDistance = functions::cached_distance_function<Data, Distance>;
 
 // split function 类型定义
-using SplitStrategyType = functions::TwoWaySplitStrategy<
-    functions::random_promotion,
-    functions::balanced_partition
->;
-// using SplitStrategyType = functions::OptimizedKSplitStrategy;
+// using SplitStrategyType = functions::TwoWaySplitStrategy<
+//     functions::random_promotion,
+//     functions::balanced_partition
+// >;
+using SplitStrategyType = functions::OptimizedKSplitStrategy;   
 // using SplitFunc = functions::split_function<
 //     functions::random_promotion,
 //     functions::balanced_partition>;
@@ -237,6 +237,8 @@ int main(int argc, char* argv[]) {
         2,              // min node capacity
         -1,             // max node capacity
         5,
+        5,
+        0.2,
         Distance(),     // 距离函数
         SplitStrategyType()  // split function
     );
