@@ -44,10 +44,7 @@ using CachedDistance = functions::cached_distance_function<Data, Distance>;
 //     functions::random_promotion,
 //     functions::balanced_partition
 // >;
-using SplitStrategyType = functions::OptimizedKSplitStrategy;   
-// using SplitFunc = functions::split_function<
-//     functions::random_promotion,
-//     functions::balanced_partition>;
+using SplitStrategyType = functions::OptimizedKSplitStrategy;
 
 // 定义最终 MTree 类型
 using MTree = mtree<Data, Distance, SplitStrategyType>;
@@ -153,6 +150,12 @@ int main(int argc, char* argv[]) {
     unsigned int seed = 42; //  默认 seed
     bool use_anchor_radius = false; // 默认不用某个距离内的 anchor
     int anchor_radius = 3; // 选择的 anchor 到 query 的距离
+    int min_node_capacity = 2;              // min node capacity
+    int max_node_capacity = -1;             // max node capacity (-1 表示默认/自动)
+    double leaf_radius_threshold = 0.0;     // 叶子节点半径允许的阈值
+    int compactness_min_capacity = 10;      // 触发紧凑性分裂的最小节点容量
+    double compactness_radius_factor = 1.1; // 触发紧凑性分裂的半径膨胀比例
+    std::string split_strategy_name = "mtree"; // 默认使用 TwoWaySplitStrategy
 
     // ----- 解析命令行参数 -----
     for (int i = 1; i < argc; ++i) {
@@ -195,6 +198,22 @@ int main(int argc, char* argv[]) {
             seed = stoul(argv[++i]);
         } else if (arg == "--anchor_radius" && i + 1 < argc) {
             anchor_radius = stod(argv[++i]);
+        } else if (arg == "--min_node_capacity" && i + 1 < argc) {
+            min_node_capacity = stoi(argv[++i]);
+        } else if (arg == "--max_node_capacity" && i + 1 < argc) {
+            max_node_capacity = stoi(argv[++i]);
+        } else if (arg == "--leaf_radius_threshold" && i + 1 < argc) {
+            leaf_radius_threshold = stod(argv[++i]);
+        } else if (arg == "--compactness_min_capacity" && i + 1 < argc) {
+            compactness_min_capacity = stoi(argv[++i]);
+        } else if (arg == "--compactness_radius_factor" && i + 1 < argc) {
+            compactness_radius_factor = stod(argv[++i]);
+        } else if (arg == "--split_strategy" && i + 1 < argc) {
+            split_strategy_name = argv[++i];
+            if (split_strategy_name != "mtree" && split_strategy_name != "fmtree") {
+                cerr << "Invalid value for --split_strategy (expect mtree or fmtree)\n";
+                return 1;
+            }
         } else {
             cerr << "Unknown or incomplete argument: " << arg << "\n";
             return 1;
@@ -215,6 +234,12 @@ int main(int argc, char* argv[]) {
     cout << "last_random: " << last_random << "\n";
     cout << "anchor radius: " << anchor_radius << "\n"; 
     cout << "seed: " << seed << "\n"; 
+    cout << "--- M-Tree Config ---\n";
+    cout << "min_node_capacity: " << min_node_capacity << "\n";
+    cout << "max_node_capacity: " << max_node_capacity << "\n";
+    cout << "leaf_radius_threshold: " << leaf_radius_threshold << "\n";
+    cout << "compactness_min_capacity: " << compactness_min_capacity << "\n";
+    cout << "compactness_radius_factor: " << compactness_radius_factor << "\n";
     rng.seed(seed);
 
     // ----- 读取 FASTA 并截断 -----
@@ -234,16 +259,19 @@ int main(int argc, char* argv[]) {
 
     // ----- 生成 m-tree -----
     MTree mtree(
-        2,              // min node capacity
-        -1,             // max node capacity
-        5,
-        5,
-        0.2,
-        Distance(),     // 距离函数
-        SplitStrategyType()  // split function
+        min_node_capacity,          // min node capacity
+        max_node_capacity,          // max node capacity
+        leaf_radius_threshold,      // 叶子节点半径允许的阈值
+        compactness_min_capacity,   // 触发紧凑性分裂的最小节点容量
+        compactness_radius_factor,  // 触发紧凑性分裂的半径膨胀比例
+        Distance(),                 // 距离函数
+        SplitStrategyType()         // split function
     );
 
     build_mtree_from_ref(ref, anchor_len, mtree);
+
+    // 输出 mtree overlap
+    mtree.print_overlap_info();
     // 输出mtree各层次半径
     // print_mtree_radius_distribution(mtree);
 
@@ -296,7 +324,6 @@ int main(int argc, char* argv[]) {
 
     // ofstream out("anchor_index.json");
     // out << j.dump(2);
-
 
     // ----- 查询 + 评估 -----
     // 用于累加每条 query 的 recall / precision

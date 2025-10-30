@@ -479,7 +479,7 @@ public:
 	explicit mtree(
 			size_t min_node_capacity = DEFAULT_MIN_NODE_CAPACITY,
 			size_t max_node_capacity = -1,
-			double leaf_radius_threshold = 5,
+			double leaf_radius_threshold = 5, //叶子节点半径允许的阈值
 			size_t min_compact_thresh = 5, // 触发紧凑性分裂的最小节点容量
 			double pre_split_ratio = 2,     // 触发紧凑性分裂的半径膨胀比例
 			const DistanceFunction& distance_function = DistanceFunction(),
@@ -675,6 +675,201 @@ protected:
 
 public:
 
+using LayerNodeCounts = std::map<size_t, size_t>; // <层级, 节点数量>
+LayerNodeCounts get_structure_info() const {
+    // 结构信息：BFS 遍历
+    if (root == NULL) {
+        return {};
+    }
+
+    LayerNodeCounts counts;
+    // 使用 std::queue 存储要遍历的节点指针
+    std::queue<Node*> q; 
+    
+    // 根节点是第 0 层（或者第 1 层，取决于您的定义，这里用 0 方便数组索引）
+    size_t current_layer = 0;
+
+    // 存储当前层节点的数量（作为分隔符）
+    q.push(root);
+    q.push(nullptr); // 使用 nullptr 作为层级分隔符
+
+    size_t node_count = 0;
+
+    while (!q.empty()) {
+        Node* node = q.front();
+        q.pop();
+
+        if (node == nullptr) {
+            // 遇到层级分隔符
+            if (node_count > 0) {
+                // 记录上一层的节点数
+                counts[current_layer] = node_count; 
+                
+                // 推进到下一层
+                current_layer++;
+                node_count = 0;
+                
+                // 如果队列中还有元素（即下一层有节点），则放入下一个分隔符
+                if (!q.empty()) {
+                    q.push(nullptr); 
+                }
+            }
+            continue;
+        }
+
+        // 统计当前层节点
+        node_count++; 
+
+        // 将当前节点的所有子节点（下一层）加入队列
+        for (auto const& [key, val] : node->children) {
+            Node* child_node = dynamic_cast<Node*>(val);
+            // 只有非叶节点（InternalNode 或 RootNode）才有 Node* 类型的子节点
+            if (child_node != NULL) { 
+                q.push(child_node);
+            }
+        }
+    }
+    
+    // 最后的叶节点层（Layer N）的计数在循环中被记录，无需额外处理。
+    return counts;
+}
+
+// LayerOverlapCounts 存储每一层（父层）对下一层（子层）的重叠统计
+struct LayerOverlapInfo {
+    size_t total_child_nodes;        // 下一层 (h+1) 的总枢轴数
+    size_t multi_contained_children; // 下一层中被 > 1 个父节点覆盖的枢轴数
+    size_t total_overlap_count;      // 下一层所有枢轴被覆盖的总次数 (Sigma(count_i) - total_child_nodes)
+};
+
+using LayerOverlapResults = std::map<size_t, LayerOverlapInfo>; // <层级 h, 统计信息>
+// 在 mtree 类定义中添加此方法
+
+LayerOverlapResults get_overlap_info() const {
+    if (root == NULL) {
+        return {};
+    }
+
+    LayerOverlapResults overlap_results;
+    std::queue<Node*> q; 
+    q.push(root);
+    
+    size_t current_layer = 0; // 当前层是父节点层 (N_i)
+
+    while (!q.empty()) {
+        size_t level_size = q.size();
+        std::vector<Node*> current_level_nodes;
+
+        // 1. 提取当前层的所有父节点 N_i
+        for (size_t i = 0; i < level_size; ++i) {
+            current_level_nodes.push_back(q.front());
+            q.pop();
+        }
+        
+        // 2. 收集下一层 (h+1) 所有子节点/数据项 C 的枢轴 P_C
+        // next_level_containment_counts: <枢轴指针, 被包含次数>
+        std::map<const Data*, size_t, typename functions::DataPtrLess<Data>> next_level_containment_counts;
+        std::vector<Node*> next_level_nodes; // 用于 BFS 推进
+
+        for (Node* parent_node : current_level_nodes) {
+            for (auto const& [key, val] : parent_node->children) {
+                const IndexItem* child_item = val; 
+                const Data* pivot_ptr = &(child_item->data);
+
+                // 确保每个枢轴只被初始化一次
+                if (next_level_containment_counts.find(pivot_ptr) == next_level_containment_counts.end()) {
+                     next_level_containment_counts[pivot_ptr] = 0;
+                }
+                
+                Node* child_node = dynamic_cast<Node*>(val);
+                if (child_node != NULL) {
+                    next_level_nodes.push_back(child_node);
+                }
+            }
+        }
+        
+        size_t total_next_level_pivots = next_level_containment_counts.size();
+        if (total_next_level_pivots == 0) break;
+
+        // 3. 计算子节点被同层父节点包含的次数 (O(N_h * N_{h+1}))
+        for (Node* parent_node : current_level_nodes) {
+            
+            const double parent_radius = parent_node->radius;
+            const Data& parent_pivot = parent_node->data;
+
+            for (auto& pair : next_level_containment_counts) {
+                const Data& child_pivot = *(pair.first);
+                size_t& count = pair.second; // 引用，用于更新
+
+                double distance = distance_function(parent_pivot, child_pivot);
+
+                // 如果 N_i 的覆盖球包含子节点 C 的枢轴 P_C
+                if (distance <= parent_radius) {
+                    count++; 
+                }
+            }
+        }
+        
+        // 4. 统计重叠数量和总次数，并记录结果
+        size_t multi_contained_children = 0; // 被 > 1 次包含的枢轴数量
+        size_t total_overlap_count = 0;      // 总重叠次数 (所有多余的包含)
+
+        for (const auto& pair : next_level_containment_counts) {
+            // pair.second 是该枢轴被同层节点包含的总次数 (count)
+            if (pair.second > 1) { 
+                multi_contained_children++;
+                // 贡献的重叠次数 = (总次数 - 1)
+                total_overlap_count += (pair.second - 1); 
+            }
+        }
+
+        // 记录结果
+        overlap_results[current_layer] = {
+            total_next_level_pivots,
+            multi_contained_children,
+            total_overlap_count
+        };
+
+        // 5. 推进到下一层
+        if (!next_level_nodes.empty()) {
+            for (Node* next_node : next_level_nodes) {
+                q.push(next_node);
+            }
+            current_layer++;
+        } else {
+            break;
+        }
+    }
+
+    return overlap_results;
+}
+
+// 在 mtree 公有部分添加
+
+void print_overlap_info() const {
+    LayerOverlapResults results = get_overlap_info();
+
+    if (results.empty()) {
+        std::cout << "M-Tree 重叠度信息为空 (树结构未达到多层)." << std::endl;
+        return;
+    }
+
+    std::cout << "--- M-Tree 重叠度分析 (子节点多路径包含) ---" << std::endl;
+    for (const auto& pair : results) {
+        size_t layer_index = pair.first;
+        const auto& info = pair.second;
+        
+        double overlap_ratio = (info.total_child_nodes > 0) 
+                               ? (double)info.multi_contained_children / info.total_child_nodes
+                               : 0.0;
+        
+        std::cout << "父层级: " << layer_index 
+                  << " | 子节点总数: " << info.total_child_nodes
+                  << " | 被多次覆盖枢轴数: " << info.multi_contained_children
+                  << " (" << std::fixed << std::setprecision(2) << (overlap_ratio * 100.0) << "%)"
+                  << " | 总重叠次数: " << info.total_overlap_count
+                  << std::endl;
+    }
+}
 	// // typedef std::pair<Data, Data> PromotedPair;
 	// typedef std::set<Data> Partition;
 	// typedef std::vector<std::pair<Data, Partition>> SplitResult;

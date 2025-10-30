@@ -584,6 +584,16 @@ private:
 	CacheType cache;
 };
 
+template <typename Data>
+struct DataPtrLess {
+    // This assumes your Data type has a defined operator<
+    bool operator()(const Data* lhs, const Data* rhs) const {
+        // Check for nullptr safety if needed, but for M-Tree pivots, they 
+        // shouldn't be null here.
+        return *lhs < *rhs;
+    }
+};
+
 
 
 } /* namespace functions */
