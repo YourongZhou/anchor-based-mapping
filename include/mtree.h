@@ -663,7 +663,7 @@ public:
         return root->size();
     }
 
-protected:
+public:
 
 	void _check() const {
 #ifndef NDEBUG

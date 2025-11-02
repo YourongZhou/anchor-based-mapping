@@ -241,7 +241,8 @@ int main(int argc, char* argv[]) {
     cout << "compactness_min_capacity: " << compactness_min_capacity << "\n";
     cout << "compactness_radius_factor: " << compactness_radius_factor << "\n";
     rng.seed(seed);
-
+    time_t time_start, time_read, time_tree, time_overlap, time_truth, time_query;
+    time_start = time(NULL);
     // ----- 读取 FASTA 并截断 -----
     vector<FastaRecord> records;
     try {
@@ -256,7 +257,7 @@ int main(int argc, char* argv[]) {
     }
     string ref = records[0].seq.substr(0, min(records[0].seq.size(), truncate_ref_len));
     cout << "Using reference (truncated) length = " << ref.size() << "\n";
-
+    time_read = time(NULL);
     // ----- 生成 m-tree -----
     MTree mtree(
         min_node_capacity,          // min node capacity
@@ -269,9 +270,10 @@ int main(int argc, char* argv[]) {
     );
 
     build_mtree_from_ref(ref, anchor_len, mtree);
-
+    time_tree = time(NULL);
     // 输出 mtree overlap
-    mtree.print_overlap_info();
+    // mtree.print_overlap_info();
+    time_overlap = time(NULL);
     // 输出mtree各层次半径
     // print_mtree_radius_distribution(mtree);
 
@@ -311,7 +313,7 @@ int main(int argc, char* argv[]) {
     for (const auto &q : queries) {
         truth_positions.push_back(find_all_occurrences_approx(q, ref, maxDist));
     }
-
+    time_truth = time(NULL);
     // using json = nlohmann::json;
 
     // json j;
@@ -394,7 +396,7 @@ int main(int argc, char* argv[]) {
         sum_max_dist += max_dist;
         // metrics::report(truth_str, cand_str);
     }
-
+    time_query = time(NULL);
     // 保存到文件
     ofstream ofs("dist_counts_radius_" + to_string(anchor_radius) + ".txt");
 
@@ -427,6 +429,13 @@ int main(int argc, char* argv[]) {
     cout << "Average FP/TP: " << avg_fp_over_tp << "\n";
     cout << "Average average distance: " << avg_avg_dist << "\n";
     cout << "Average maximum distance: " << avg_max_dist << "\n";
+
+    cout << "===== Average time lapse =====";
+    printf("\nRead FASTQA file time:%ld", (time_read-time_start));
+    printf("\nBuild Tree time:%ld", (time_tree-time_read));
+    printf("\nCalculate overlap time:%ld", (time_overlap - time_tree));
+    printf("\nGet ground truth time:%ld", (time_truth - time_overlap));
+    printf("\nQuery time:%ld", (time_query - time_truth));
 
     return 0;
 }
