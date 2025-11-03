@@ -138,6 +138,7 @@ vector<int> retrieveCandidates_mtree(
 int main(int argc, char* argv[]) {
     // ----- 参数 -----
     string fasta_path = "/home/luting/nfs/luting_data/AnchorBasedMapping/ecoli/fasta/ecoli.fa";
+    string fastq_path = "/home/luting/nfs/luting_data/AnchorBasedMapping/ecoli/fastq/ERR15404863_1.fastq";
     size_t truncate_ref_len = 10000;    // 只取前 10000 个碱基
     size_t anchor_len = 20;             // anchor 长度
     int num_anchors = 100;              // anchor 个数
@@ -150,12 +151,13 @@ int main(int argc, char* argv[]) {
     unsigned int seed = 42; //  默认 seed
     bool use_anchor_radius = false; // 默认不用某个距离内的 anchor
     int anchor_radius = 3; // 选择的 anchor 到 query 的距离
-    int min_node_capacity = 2;              // min node capacity
+    int min_node_capacity = 50;              // min node capacity
     int max_node_capacity = -1;             // max node capacity (-1 表示默认/自动)
     double leaf_radius_threshold = 0.0;     // 叶子节点半径允许的阈值
-    int compactness_min_capacity = 10;      // 触发紧凑性分裂的最小节点容量
+    int compactness_min_capacity = 25;      // 触发紧凑性分裂的最小节点容量
     double compactness_radius_factor = 1.1; // 触发紧凑性分裂的半径膨胀比例
     std::string split_strategy_name = "mtree"; // 默认使用 TwoWaySplitStrategy
+    bool auto_gen = true;
 
     // ----- 解析命令行参数 -----
     for (int i = 1; i < argc; ++i) {
@@ -214,6 +216,16 @@ int main(int argc, char* argv[]) {
                 cerr << "Invalid value for --split_strategy (expect mtree or fmtree)\n";
                 return 1;
             }
+        } else if (arg == "--auto_gen" && i + 1 < argc) {
+            string val = argv[++i];
+            if (val == "true" || val == "1") {
+                auto_gen = true;
+            } else if (val == "false" || val == "0") {
+                auto_gen = false;
+            } else {
+                cerr << "Invalid value for --auto_gen (expect true/false or 1/0)\n";
+                return 1;
+            }
         } else {
             cerr << "Unknown or incomplete argument: " << arg << "\n";
             return 1;
@@ -240,6 +252,7 @@ int main(int argc, char* argv[]) {
     cout << "leaf_radius_threshold: " << leaf_radius_threshold << "\n";
     cout << "compactness_min_capacity: " << compactness_min_capacity << "\n";
     cout << "compactness_radius_factor: " << compactness_radius_factor << "\n";
+    cout << "auto generate queries: " << auto_gen << "\n";
     rng.seed(seed);
     time_t time_start, time_read, time_tree, time_overlap, time_truth, time_query;
     time_start = time(NULL);
@@ -303,8 +316,26 @@ int main(int argc, char* argv[]) {
     // cout << "Building anchor index:\n";
     // auto anchor_index = build_anchor_index(anchors, ref, anchor_len);
     // ----- 生成 queries -----
-    auto queries = simulate_queries(ref, num_queries, query_len);
-    cout << "Simulated " << num_queries << " queries\n";
+    vector<string> queries;
+    if (auto_gen){
+        queries = simulate_queries(ref, num_queries, query_len);
+        cout << "Simulated " << num_queries << " queries\n";
+    } else {
+        try {
+                vector<FastqRecord> fastq_records = read_fastq_seqan(fastq_path);
+                
+                int count = 0;
+                for (const auto& record : fastq_records) {
+                    if (count++ >= num_queries){
+                        break;
+                    }
+                    queries.push_back(record.seq.substr(0, query_len));
+                }
+                cout << "Read " << queries.size() << " queries from FASTQ file: " << fastq_path << "\n";
+            } catch (const runtime_error& e) {
+                cerr << "Error reading FASTQ: " << e.what() << "\n";
+            }
+    }
 
     // // 只保留周围某个距离内有 anchor 的 query
     // queries = filter_queries_by_anchor_index(queries, anchor_index, 3);
@@ -312,6 +343,7 @@ int main(int argc, char* argv[]) {
 
     // ----- ground truth -----
     cout << "Generating ground truths:\n";
+    cout << "Number of queries: " << num_queries << endl;
     vector<vector<int>> truth_positions;
     truth_positions.reserve(num_queries);
     for (const auto &q : queries) {
