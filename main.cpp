@@ -273,8 +273,12 @@ int main(int argc, char* argv[]) {
     time_tree = time(NULL);
     // 输出 mtree overlap
     // mtree.print_overlap_info();
-    time_overlap = time(NULL);
-    // 输出mtree各层次半径
+
+    // 检查树状态
+    cout << "Validating tree structure:" << endl;
+    // mtree._check();
+    cout << "Validation successful." << endl;
+    time_overlap = time(NULL);   // 输出mtree各层次半径
     // print_mtree_radius_distribution(mtree);
 
     // // ----- 生成 anchors -----

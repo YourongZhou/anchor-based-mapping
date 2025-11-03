@@ -1162,7 +1162,7 @@ private:
 		}
 
 		void _checkMinCapacity(const mtree* mtree) const {
-			assert(this->children.size() >= mtree->minNodeCapacity);
+			assert(this->children.size() >= mtree->minNodeCapacity);// 
 		}
 	};
 

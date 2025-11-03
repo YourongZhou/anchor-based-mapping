@@ -1,6 +1,7 @@
 # Compiler
 CXX      = clang++
 CXXFLAGS = -std=c++17 -O3 -fPIC -Iinclude
+# CXXFLAGS = -std=c++17 -g -O0 -fPIC -Iinclude // debug
 
 # Source and object files
 SRC = src/anchor_gen.cpp \
