@@ -14,6 +14,9 @@
 
 // #define SEQAN_NO_INCLUDE_OMP
 #include <seqan/find.h> 
+#include <seqan/index.h>
+#include <seqan/seeds.h>
+#include <seqan/align.h>
 
 #include <iostream>
 #include <vector>
@@ -86,6 +89,70 @@ vector<int> retrieveCandidates_mtree(
         const auto &res = *it;  // res 包含 (obj, distance)
         results.push_back(res.data.pos);
     }
+    return results;
+}
+
+
+std::vector<int> retrieveCandidates_sae(
+    seqan::Index<seqan::Dna5String, seqan::FMIndex<>> &fm_index, // 显式类型
+    const seqan::Dna5String &ref_seq,                           // 显式类型
+    const std::string &query,
+    int maxDist) 
+{
+    // === 内部参数设置 ===
+    size_t seed_len = 12; 
+    
+    // 显式使用 seqan::Score 和 seqan::Simple
+    seqan::Score<int, seqan::Simple> scoring(1, -1, -1); // match=+1, mismatch=-1, gap=-1
+    int xDropThreshold = maxDist * 4; // 经验值
+    // ======================
+
+    std::set<int> unique_positions;
+    std::vector<int> results;
+
+    std::string qseq_str = query;
+    std::transform(qseq_str.begin(), qseq_str.end(), qseq_str.begin(), ::toupper);
+    
+    // 显式使用 seqan::Dna5String 和 seqan::assign
+    seqan::Dna5String qseq;
+    seqan::assign(qseq, qseq_str);
+
+    // 显式类型定义
+    typedef seqan::Seed<seqan::Simple> TSeed;
+    
+    // 显式使用 seqan::Finder
+    seqan::Finder<seqan::Index<seqan::Dna5String, seqan::FMIndex<>>> finder(fm_index);
+
+    // 遍历所有可能的种子
+    for (size_t i = 0; i + seed_len <= qseq_str.size(); i += 3) {
+        std::string seed_str = qseq_str.substr(i, seed_len);
+        seqan::Dna5String seed;
+        seqan::assign(seed, seed_str);
+        
+        seqan::clear(finder);
+        
+        // 显式使用 seqan::find, seqan::position
+        while (seqan::find(finder, seed)) {
+            size_t seed_ini_pos_on_ref = seqan::position(finder);
+            
+            // 显式使用 TSeed 构造函数
+            TSeed s(seed_ini_pos_on_ref, i, 
+                    seed_ini_pos_on_ref + seed_len - 1, i + seed_len - 1);
+            
+            // 显式使用 seqan::extendSeed, seqan::EXTEND_BOTH, seqan::GappedXDrop
+            seqan::extendSeed(s, ref_seq, qseq, seqan::EXTEND_BOTH, scoring, xDropThreshold, seqan::GappedXDrop());
+
+            // 显式使用 seqan::beginPositionH
+            unsigned sb = seqan::beginPositionH(s);
+            
+            // 存储起始位置
+            unique_positions.insert((int)sb); 
+        }
+    }
+
+    results.reserve(unique_positions.size());
+    results.assign(unique_positions.begin(), unique_positions.end());
+    
     return results;
 }
 
@@ -271,6 +338,7 @@ int main(int argc, char* argv[]) {
     string ref = records[0].seq.substr(0, min(records[0].seq.size(), truncate_ref_len));
     cout << "Using reference (truncated) length = " << ref.size() << "\n";
     time_read = time(NULL);
+
     // ----- 生成 m-tree -----
     MTree mtree(
         min_node_capacity,          // min node capacity
@@ -350,6 +418,19 @@ int main(int argc, char* argv[]) {
         truth_positions.push_back(find_all_occurrences_approx(q, ref, maxDist));
     }
     time_truth = time(NULL);
+    
+    // ----- FMindex -----
+    seqan::Dna5String ref_seq;
+    seqan::assign(ref_seq, ref);
+    // 使用 Dna5String 作为文本类型，FMIndex<> 作为索引类型
+    seqan::Index<seqan::Dna5String, seqan::FMIndex<>> fm_index(ref_seq);
+    try {
+        seqan::indexRequire(fm_index, seqan::FibreSA());
+        std::cout << "[INFO] FM-index constructed successfully and Suffix Array loaded.\n";
+    } catch (const seqan::Exception &e) {
+        std::cerr << "[ERROR] Failed to construct or load Suffix Array for FM-index: " << e.what() << "\n";
+        return 1; // 或者采取其他错误处理措施
+    }
     // using json = nlohmann::json;
 
     // json j;
@@ -409,7 +490,9 @@ int main(int argc, char* argv[]) {
         // === metrics ===
         size_t count = 0;  // 保存 dist_list.size()
         const auto &truth_str = posVecToStrVec(truth_positions[i]);
-        const auto &cand_str  = posVecToStrVec(retrieveCandidates_mtree(mtree, queries[i], maxDist));
+        // const auto &cand_str  = posVecToStrVec(retrieveCandidates_mtree(mtree, queries[i], maxDist));
+        const auto &cand_str  = posVecToStrVec(retrieveCandidates_sae(fm_index, ref_seq, queries[i], maxDist));
+           
         // const auto &cand_str  = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random, anchor_radius = anchor_radius, &count));
         dist_counts[i] = count;
 

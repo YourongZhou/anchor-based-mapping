@@ -949,7 +949,7 @@ private:
 			checkMaxCapacity(mtree);
 		}
 
-        virtual size_t size() const {
+        virtual size_t size() const override {
             auto fanout = DEFAULT_MIN_NODE_CAPACITY * 2 - 1;
             //auto fanout = children.size();
             auto res = sizeof(IndexItem) + fanout * (sizeof(Data) + sizeof(IndexItem*));
@@ -961,7 +961,7 @@ private:
         }
 
 #ifndef NDEBUG
-		size_t _check(const mtree* mtree) const {
+		size_t _check(const mtree* mtree) const override {
 			IndexItem::_check(mtree);
 			_checkMinCapacity(mtree);
 			_checkMaxCapacity(mtree);
@@ -1157,11 +1157,11 @@ private:
 
 
 	class NonRootNodeTrait : public virtual Node {
-		size_t getMinCapacity(const mtree* mtree) const {
+		size_t getMinCapacity(const mtree* mtree) const override {
 			return mtree->minNodeCapacity;
 		}
 
-		void _checkMinCapacity(const mtree* mtree) const {
+		void _checkMinCapacity(const mtree* mtree) const override {
 			assert(this->children.size() >= mtree->minNodeCapacity);// 
 		}
 	};
@@ -1459,7 +1459,7 @@ private:
 	public:
 		RootLeafNode(const Data& data) : Node(data) { }
 
-		void removeData(const Data& data, double distance, const mtree* mtree) {
+		void removeData(const Data& data, double distance, const mtree* mtree) override {
 			try {
 				Node::removeData(data, distance, mtree);
 			} catch (NodeUnderCapacity&) {
@@ -1468,11 +1468,11 @@ private:
 			}
 		}
 
-		size_t getMinCapacity(const mtree* mtree) const {
+		size_t getMinCapacity(const mtree* mtree) const override {
 			return 1;
 		}
 
-		void _checkMinCapacity(const mtree* mtree) const {
+		void _checkMinCapacity(const mtree* mtree) const override {
 			assert(this->children.size() >= 1);
 		}
 
@@ -1494,7 +1494,7 @@ private:
 		}
 
 	private:
-		void removeData(const Data& data, double distance, const mtree* mtree) {
+		void removeData(const Data& data, double distance, const mtree* mtree) override {
 			try {
 				Node::removeData(data, distance, mtree);
 			} catch(NodeUnderCapacity&) {
@@ -1520,11 +1520,11 @@ private:
 		}
 
 
-		size_t getMinCapacity(const mtree* mtree) const {
+		size_t getMinCapacity(const mtree* mtree) const override {
 			return 2;
 		}
 
-		void _checkMinCapacity(const mtree* mtree) const {
+		void _checkMinCapacity(const mtree* mtree) const override {
 			assert(this->children.size() >= 2);
 		}
 	};
