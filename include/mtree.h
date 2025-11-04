@@ -92,6 +92,8 @@ private:
 			return newNodes.size();
 		}
 	};
+
+
 	// class SplitNodeReplacement {
 	// public:
 	// 	enum { NUM_NODES = 2 };
@@ -144,6 +146,7 @@ public:
 	 */
 	class query {
 	public:
+		mutable size_t nodeAccess;
 
 		/**
 		 * @brief The type of the results for nearest-neighbor queries.
@@ -199,7 +202,7 @@ public:
 		query(query&&) = default;
 
 		query(const mtree* _mtree, const Data& data, double range, size_t limit)
-			: _mtree(_mtree), data(data), range(range), limit(limit)
+			: _mtree(_mtree), data(data), range(range), limit(limit), nodeAccess(0)
 			{}
 
 
@@ -240,6 +243,7 @@ public:
 				  isEnd(false),
 				  yieldedCount(0)
 			{
+				_query->nodeAccess = 0; //每次开始迭代时重复计数
 				if(_query->_mtree->root == NULL) {
 					isEnd = true;
 					return;
@@ -368,6 +372,7 @@ public:
 
 					ItemWithDistances<Node> pending = pendingQueue.top();
 					pendingQueue.pop();
+					_query->nodeAccess++; // 计数 nodeAccess
 
 					const Node* node = pending.item;
 
@@ -449,6 +454,7 @@ public:
 		Data data;
 		double range;
 		size_t limit;
+		friend class iterator;
 	};
 
 
@@ -460,6 +466,15 @@ public:
 		 */
 		DEFAULT_MIN_NODE_CAPACITY = 50
 	};
+
+public:
+	struct range_query_result {
+        /** @brief 在范围内找到的项的列表。 */
+        std::vector<typename query::result_item> matches;
+        
+        /** @brief 搜索期间访问的节点数。 */
+        size_t nodeAccesses;
+    };
 
 
 	/**
@@ -617,8 +632,24 @@ public:
 	 * @param range The maximum distance from @c query_data to fetched neighbors.
 	 * @return A @c query object.
 	 */
-	query get_nearest_by_range(const Data& query_data, double range) const {
-		return get_nearest(query_data, range, std::numeric_limits<unsigned int>::max());
+	range_query_result get_nearest_by_range(const Data& query_data, double range) const {
+		// 1. 创建 lazy_query 对象
+        query lazy_query = get_nearest(query_data, range, std::numeric_limits<unsigned int>::max());
+        
+        // 2. 准备结果结构体
+        range_query_result result;
+        result.nodeAccesses = 0;
+        
+        // 3. 通过迭代执行查询。
+        //    填充 lazy_query.nodeAccesses
+        for (const auto& item : lazy_query) {
+            result.matches.push_back(item);
+        }
+        
+        // 4. 从 query 对象中检索统计数据
+        result.nodeAccesses = lazy_query.nodeAccess;
+        
+        return result;
 	}
 
 	/**

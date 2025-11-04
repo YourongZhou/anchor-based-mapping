@@ -75,7 +75,7 @@ void build_mtree_from_ref(const std::string &ref, int k, MTree &tree) {
 }
 
 // ======================== 查询函数 ========================
-vector<int> retrieveCandidates_mtree(
+std::pair<vector<int>, size_t> retrieveCandidates_mtree(
     MTree &mtree,
     const std::string &query,
     int maxDist)
@@ -83,13 +83,22 @@ vector<int> retrieveCandidates_mtree(
     std::vector<int> results;
 
     Substring query_anchor{query, -1}; // pos = -1 表示查询
-    auto matches = mtree.get_nearest_by_range(query_anchor, maxDist);
+    
+    // 1. 调用函数，'result_struct' 是包含 .matches 和 .nodeAccesses 的结构体
+    auto result_struct = mtree.get_nearest_by_range(query_anchor, maxDist);
 
-    for (auto it = matches.begin(); it != matches.end(); ++it) {
-        const auto &res = *it;  // res 包含 (obj, distance)
+    // 2. 遍历结构体内部的 .matches 向量
+    //    (您也可以使用更简洁的 C++11 范围for循环)
+    for (const auto &res : result_struct.matches) {
+        // 'res' 现在直接是 result_item (包含 .data 和 .distance)
         results.push_back(res.data.pos);
     }
-    return results;
+
+    // 3. (可选) 获取节点访问次数
+    size_t accesses = result_struct.nodeAccesses;
+    std::cout << "M-Tree search node accesses: " << accesses << std::endl;
+
+    return {results, accesses};
 }
 
 
@@ -224,7 +233,7 @@ int main(int argc, char* argv[]) {
     int compactness_min_capacity = 25;      // 触发紧凑性分裂的最小节点容量
     double compactness_radius_factor = 1.1; // 触发紧凑性分裂的半径膨胀比例
     std::string split_strategy_name = "mtree"; // 默认使用 TwoWaySplitStrategy
-    bool auto_gen = true;
+    bool auto_gen = false;
 
     // ----- 解析命令行参数 -----
     for (int i = 1; i < argc; ++i) {
@@ -362,27 +371,29 @@ int main(int argc, char* argv[]) {
     time_overlap = time(NULL);   // 输出mtree各层次半径
     // print_mtree_radius_distribution(mtree);
 
-    // // ----- 生成 anchors -----
-    // auto anchors = generate_anchors_from_seq(ref, "ref1", anchor_len, num_anchors);
-    // cout << "Generated " << anchors.size() << " anchors\n";
-    // // 用 set 检查去重后数量
-    // unordered_set<string> uniq;
-    // for (auto &a : anchors) {
-    //     uniq.insert(a.seq);   // 注意这里用 seq，而不是 id
-    // }
+    // ----- 生成 anchors -----
+    auto anchors = generate_anchors_from_seq(ref, "ref1", anchor_len, num_anchors);
+    cout << "Generated " << anchors.size() << " anchors\n";
+    // 用 set 检查去重后数量
+    unordered_set<string> uniq;
+    for (auto &a : anchors) {
+        uniq.insert(a.seq);   // 注意这里用 seq，而不是 id
+    }
 
-    // cout << "Unique anchors: " << uniq.size() << endl;
+    cout << "Unique anchors: " << uniq.size() << endl;
 
-    // // 如果有重复，提示
-    // if (uniq.size() < anchors.size()) {
-    //     cout << "Warning: Found " 
-    //               << (anchors.size() - uniq.size()) 
-    //               << " duplicate anchors!" << endl;
-    // }
+    // 如果有重复，提示
+    if (uniq.size() < anchors.size()) {
+        cout << "Warning: Found " 
+                  << (anchors.size() - uniq.size()) 
+                  << " duplicate anchors!" << endl;
+    }
 
-    // // ----- 构建 anchor index -----
-    // cout << "Building anchor index:\n";
-    // auto anchor_index = build_anchor_index(anchors, ref, anchor_len);
+    // ----- 构建 anchor index -----
+    cout << "Building anchor index:\n";
+    auto anchor_index = build_anchor_index(anchors, ref, anchor_len);
+
+
     // ----- 生成 queries -----
     vector<string> queries;
     if (auto_gen){
@@ -460,39 +471,13 @@ int main(int argc, char* argv[]) {
         const auto &q = queries[i];
         const auto &truth_pos = truth_positions[i];
 
-        // === 用 anchor-based 检索 ===
-        // auto candidates_pos = retrieveCandidates_anchor(q, anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx);
-
-        // // === 打印 ===
-        // cout << "\n=== Query [" << i << "] ===\n";
-        // cout << "Query seq: " << q << "\n";
-
-        // cout << "Truth positions (" << truth_pos.size() << "): ";
-        // for (auto p : truth_pos) cout << p << " ";
-        // cout << "\n";
-        // for (auto p : truth_pos) {
-        //     if (p + q.size() <= ref.size()) {
-        //         cout << "  Truth seq @ " << p << ": "
-        //                   << ref.substr(p, q.size()) << "\n";
-        //     }
-        // }
-
-        // cout << "Candidate positions (" << candidates_pos.size() << "): ";
-        // for (auto p : candidates_pos) cout << p << " ";
-        // cout << "\n";
-        // for (auto p : candidates_pos) {
-        //     if (p + q.size() <= ref.size()) {
-        //         cout << "  Candidate seq @ " << p << ": "
-        //                   << ref.substr(p, q.size()) << "\n";
-        //     }
-        // }
-
+        
         // === metrics ===
         size_t count = 0;  // 保存 dist_list.size()
         const auto &truth_str = posVecToStrVec(truth_positions[i]);
-        // const auto &cand_str  = posVecToStrVec(retrieveCandidates_mtree(mtree, queries[i], maxDist));
-        const auto &cand_str  = posVecToStrVec(retrieveCandidates_sae(fm_index, ref_seq, queries[i], maxDist));
-           
+        auto [pos, access] = retrieveCandidates_mtree(mtree, queries[i], maxDist);
+        const auto &cand_str  = posVecToStrVec(pos);
+        // const auto &cand_str  = posVecToStrVec(retrieveCandidates_sae(fm_index, ref_seq, queries[i], maxDist));
         // const auto &cand_str  = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random, anchor_radius = anchor_radius, &count));
         dist_counts[i] = count;
 
@@ -501,16 +486,16 @@ int main(int argc, char* argv[]) {
         int fn = metrics::countFN(truth_str, cand_str);
         auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_str, ref);
 
-        double recall = (tp + fn > 0) ? double(tp) / double(tp + fn) : 0.0;
-        double precision = (tp + fp > 0) ? double(tp) / double(tp + fp) : 0.0;
-        double fp_over_tp = (tp > 0) ? double(fp) / double(tp) : 0.0;
+        // double recall = (tp + fn > 0) ? double(tp) / double(tp + fn) : 0.0;
+        // double precision = (tp + fp > 0) ? double(tp) / double(tp + fp) : 0.0;
+        // double fp_over_tp = (tp > 0) ? double(fp) / double(tp) : 0.0;
 
         sumTP += tp;
         sumFP += fp;
         sumFN += fn;
-        sumRecall += recall;
-        sumPrecision += precision;
-        sum_fp_over_tp += fp_over_tp;
+        // sumRecall += recall;
+        // sumPrecision += precision;
+        // sum_fp_over_tp += fp_over_tp;
         sum_avg_dist += avg_dist;
         sum_max_dist += max_dist;
         // metrics::report(truth_str, cand_str);
@@ -532,10 +517,10 @@ int main(int argc, char* argv[]) {
     cout << "Number of queries: " << num_queries << "\n";
     cout << "Maximum allowed distance: " << maxDist << "\n";
 
-    // 平均每条 query 的指标
-    double avgRecall = sumRecall / num_queries;
-    double avgPrecision = sumPrecision / num_queries;
-    double avg_fp_over_tp = sum_fp_over_tp / num_queries;
+    // 总指标
+    double recall = (sumTP + sumFN > 0) ? double(sumTP) / double(sumTP + sumFN) : 0.0;
+    double precision = (sumTP + sumFP > 0) ? double(sumTP) / double(sumTP + sumFP) : 0.0;
+    double fp_over_tp = (sumTP > 0) ? double(sumFP) / double(sumTP) : 0.0;
     double avg_avg_dist = sum_avg_dist / num_queries;
     double avg_max_dist = sum_max_dist / num_queries;
 
@@ -543,9 +528,9 @@ int main(int argc, char* argv[]) {
     cout << "Average TP: " << (double)sumTP / num_queries << "\n";
     cout << "Average FP: " << (double)sumFP / num_queries << "\n";
     cout << "Average FN: " << (double)sumFN / num_queries << "\n";
-    cout << "Average Recall: " << avgRecall << "\n";
-    cout << "Average Precision: " << avgPrecision << "\n";
-    cout << "Average FP/TP: " << avg_fp_over_tp << "\n";
+    cout << "Average Recall: " << recall << "\n";
+    cout << "Average Precision: " << precision << "\n";
+    cout << "Average FP/TP: " << fp_over_tp << "\n";
     cout << "Average average distance: " << avg_avg_dist << "\n";
     cout << "Average maximum distance: " << avg_max_dist << "\n";
 
