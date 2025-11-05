@@ -106,11 +106,9 @@ std::vector<int> retrieveCandidates_sae(
     seqan::Index<seqan::Dna5String, seqan::FMIndex<>> &fm_index, // 显式类型
     const seqan::Dna5String &ref_seq,                           // 显式类型
     const std::string &query,
-    int maxDist) 
+    int maxDist,
+    int seed_len) 
 {
-    // === 内部参数设置 ===
-    size_t seed_len = 12; 
-    
     // 显式使用 seqan::Score 和 seqan::Simple
     seqan::Score<int, seqan::Simple> scoring(1, -1, -1); // match=+1, mismatch=-1, gap=-1
     int xDropThreshold = maxDist * 4; // 经验值
@@ -234,6 +232,8 @@ int main(int argc, char* argv[]) {
     double compactness_radius_factor = 1.1; // 触发紧凑性分裂的半径膨胀比例
     std::string split_strategy_name = "mtree"; // 默认使用 TwoWaySplitStrategy
     bool auto_gen = false;
+    int seed_len = 10;
+    string method = "mtree"; // 方法，mtree, seed-and-extend, 还是 anchor
 
     // ----- 解析命令行参数 -----
     for (int i = 1; i < argc; ++i) {
@@ -302,6 +302,14 @@ int main(int argc, char* argv[]) {
                 cerr << "Invalid value for --auto_gen (expect true/false or 1/0)\n";
                 return 1;
             }
+        } else if (arg == "--seed_len" && i + 1 < argc) {
+            seed_len = stod(argv[++i]);
+        } else if (arg == "--method" && i + 1 < argc) {
+            method = argv[++i];
+            if (method != "mtree" && method != "sae" && method != "anchor") {
+                cerr << "Invalid value for --split_strategy (expect mtree or fmtree)\n";
+                return 1;
+            }
         } else {
             cerr << "Unknown or incomplete argument: " << arg << "\n";
             return 1;
@@ -359,17 +367,19 @@ int main(int argc, char* argv[]) {
         SplitStrategyType()         // split function
     );
 
-    build_mtree_from_ref(ref, anchor_len, mtree);
-    time_tree = time(NULL);
-    // 输出 mtree overlap
-    // mtree.print_overlap_info();
+    if (method == "mtree"){
+        build_mtree_from_ref(ref, anchor_len, mtree);
+        time_tree = time(NULL);
+        // 输出 mtree overlap
+        // mtree.print_overlap_info();
 
-    // 检查树状态
-    cout << "Validating tree structure:" << endl;
-    // mtree._check();
-    cout << "Validation successful." << endl;
-    time_overlap = time(NULL);   // 输出mtree各层次半径
-    // print_mtree_radius_distribution(mtree);
+        // 检查树状态
+        cout << "Validating tree structure:" << endl;
+        // mtree._check();
+        cout << "Validation successful." << endl;
+        time_overlap = time(NULL);   // 输出mtree各层次半径
+        // print_mtree_radius_distribution(mtree);
+    }
 
     // ----- 生成 anchors -----
     auto anchors = generate_anchors_from_seq(ref, "ref1", anchor_len, num_anchors);
@@ -389,10 +399,12 @@ int main(int argc, char* argv[]) {
                   << " duplicate anchors!" << endl;
     }
 
-    // ----- 构建 anchor index -----
-    cout << "Building anchor index:\n";
-    auto anchor_index = build_anchor_index(anchors, ref, anchor_len);
-
+    unordered_map<string, vector<pair<int,int>>> anchor_index;
+    if (method == "anchor"){
+        // ----- 构建 anchor index -----
+        cout << "Building anchor index:\n";
+        auto anchor_index = build_anchor_index(anchors, ref, anchor_len);
+    }
 
     // ----- 生成 queries -----
     vector<string> queries;
@@ -430,17 +442,20 @@ int main(int argc, char* argv[]) {
     }
     time_truth = time(NULL);
     
-    // ----- FMindex -----
+    seqan::Index<seqan::Dna5String, seqan::FMIndex<>> fm_index;
     seqan::Dna5String ref_seq;
-    seqan::assign(ref_seq, ref);
-    // 使用 Dna5String 作为文本类型，FMIndex<> 作为索引类型
-    seqan::Index<seqan::Dna5String, seqan::FMIndex<>> fm_index(ref_seq);
-    try {
-        seqan::indexRequire(fm_index, seqan::FibreSA());
-        std::cout << "[INFO] FM-index constructed successfully and Suffix Array loaded.\n";
-    } catch (const seqan::Exception &e) {
-        std::cerr << "[ERROR] Failed to construct or load Suffix Array for FM-index: " << e.what() << "\n";
-        return 1; // 或者采取其他错误处理措施
+    if (method == "sae"){
+        // ----- FMindex -----
+        seqan::assign(ref_seq, ref);
+        // 使用 Dna5String 作为文本类型，FMIndex<> 作为索引类型
+        seqan::Index<seqan::Dna5String, seqan::FMIndex<>> fm_index(ref_seq);
+        try {
+            seqan::indexRequire(fm_index, seqan::FibreSA());
+            std::cout << "[INFO] FM-index constructed successfully and Suffix Array loaded.\n";
+        } catch (const seqan::Exception &e) {
+            std::cerr << "[ERROR] Failed to construct or load Suffix Array for FM-index: " << e.what() << "\n";
+            return 1; // 或者采取其他错误处理措施
+        }
     }
     // using json = nlohmann::json;
 
@@ -475,11 +490,26 @@ int main(int argc, char* argv[]) {
         // === metrics ===
         size_t count = 0;  // 保存 dist_list.size()
         const auto &truth_str = posVecToStrVec(truth_positions[i]);
-        auto [pos, access] = retrieveCandidates_mtree(mtree, queries[i], maxDist);
-        const auto &cand_str  = posVecToStrVec(pos);
-        // const auto &cand_str  = posVecToStrVec(retrieveCandidates_sae(fm_index, ref_seq, queries[i], maxDist));
-        // const auto &cand_str  = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random, anchor_radius = anchor_radius, &count));
+        cout << "truth positions: " << endl;
+        for (size_t j = 0; j < truth_positions[i].size(); ++j) {
+            std::cout << j << ": " << truth_positions[i][j] << std::endl;
+        }
+
+        vector<string> cand_str;
+        if (method == "mtree"){
+            auto [pos, access] = retrieveCandidates_mtree(mtree, queries[i], maxDist);
+            cand_str = posVecToStrVec(pos);
+        } else if (method == "sae"){
+            cand_str = posVecToStrVec(retrieveCandidates_sae(fm_index, ref_seq, queries[i], maxDist, seed_len));
+        } else{
+            cand_str = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random, anchor_radius = anchor_radius, &count));
+        };
+
         dist_counts[i] = count;
+        cout << "candidate positions: " << endl;
+        for (size_t j = 0; j < cand_str.size(); ++j) {
+            std::cout << j << ": " << cand_str[j] << std::endl;
+        }
 
         int tp = metrics::countTP(truth_str, cand_str);
         int fp = metrics::countFP(truth_str, cand_str);
