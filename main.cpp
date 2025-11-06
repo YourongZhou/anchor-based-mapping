@@ -104,11 +104,12 @@ std::pair<vector<int>, size_t> retrieveCandidates_mtree(
 
 std::vector<int> retrieveCandidates_sae(
     seqan::Index<seqan::Dna5String, seqan::FMIndex<>> &fm_index, // 显式类型
-    const seqan::Dna5String &ref_seq,                           // 显式类型
+    const seqan::Dna5String &ref_seq, // 显式类型
     const std::string &query,
     int maxDist,
     int seed_len) 
 {
+    cout << "Getting seed for " << query;
     // 显式使用 seqan::Score 和 seqan::Simple
     seqan::Score<int, seqan::Simple> scoring(1, -1, -1); // match=+1, mismatch=-1, gap=-1
     int xDropThreshold = maxDist * 4; // 经验值
@@ -133,6 +134,7 @@ std::vector<int> retrieveCandidates_sae(
     // 遍历所有可能的种子
     for (size_t i = 0; i + seed_len <= qseq_str.size(); i += 3) {
         std::string seed_str = qseq_str.substr(i, seed_len);
+        cout << "seed: " << seed_str << " ";
         seqan::Dna5String seed;
         seqan::assign(seed, seed_str);
         
@@ -140,6 +142,7 @@ std::vector<int> retrieveCandidates_sae(
         
         // 显式使用 seqan::find, seqan::position
         while (seqan::find(finder, seed)) {
+            cout << "found seed!";
             size_t seed_ini_pos_on_ref = seqan::position(finder);
             
             // 显式使用 TSeed 构造函数
@@ -381,29 +384,29 @@ int main(int argc, char* argv[]) {
         // print_mtree_radius_distribution(mtree);
     }
 
-    // ----- 生成 anchors -----
-    auto anchors = generate_anchors_from_seq(ref, "ref1", anchor_len, num_anchors);
-    cout << "Generated " << anchors.size() << " anchors\n";
-    // 用 set 检查去重后数量
-    unordered_set<string> uniq;
-    for (auto &a : anchors) {
-        uniq.insert(a.seq);   // 注意这里用 seq，而不是 id
-    }
-
-    cout << "Unique anchors: " << uniq.size() << endl;
-
-    // 如果有重复，提示
-    if (uniq.size() < anchors.size()) {
-        cout << "Warning: Found " 
-                  << (anchors.size() - uniq.size()) 
-                  << " duplicate anchors!" << endl;
-    }
-
     unordered_map<string, vector<pair<int,int>>> anchor_index;
+    vector<FastaRecord> anchors;
     if (method == "anchor"){
+        // ----- 生成 anchors -----
+        anchors = generate_anchors_from_seq(ref, "ref1", anchor_len, num_anchors);
+        cout << "Generated " << anchors.size() << " anchors\n";
+        // 用 set 检查去重后数量
+        unordered_set<string> uniq;
+        for (auto &a : anchors) {
+            uniq.insert(a.seq);   // 注意这里用 seq，而不是 id
+        }
+
+        cout << "Unique anchors: " << uniq.size() << endl;
+
+        // 如果有重复，提示
+        if (uniq.size() < anchors.size()) {
+            cout << "Warning: Found " 
+                    << (anchors.size() - uniq.size()) 
+                    << " duplicate anchors!" << endl;
+        }    
         // ----- 构建 anchor index -----
         cout << "Building anchor index:\n";
-        auto anchor_index = build_anchor_index(anchors, ref, anchor_len);
+        anchor_index = build_anchor_index(anchors, ref, anchor_len);
     }
 
     // ----- 生成 queries -----
@@ -446,9 +449,10 @@ int main(int argc, char* argv[]) {
     seqan::Dna5String ref_seq;
     if (method == "sae"){
         // ----- FMindex -----
+        cout << "Building FM-Index:" << endl;
         seqan::assign(ref_seq, ref);
         // 使用 Dna5String 作为文本类型，FMIndex<> 作为索引类型
-        seqan::Index<seqan::Dna5String, seqan::FMIndex<>> fm_index(ref_seq);
+        fm_index = seqan::Index<seqan::Dna5String, seqan::FMIndex<>>(ref_seq);
         try {
             seqan::indexRequire(fm_index, seqan::FibreSA());
             std::cout << "[INFO] FM-index constructed successfully and Suffix Array loaded.\n";
@@ -494,7 +498,7 @@ int main(int argc, char* argv[]) {
         for (size_t j = 0; j < truth_positions[i].size(); ++j) {
             std::cout << j << ": " << truth_positions[i][j] << std::endl;
         }
-
+        
         vector<string> cand_str;
         if (method == "mtree"){
             auto [pos, access] = retrieveCandidates_mtree(mtree, queries[i], maxDist);
