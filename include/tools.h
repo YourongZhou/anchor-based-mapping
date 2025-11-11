@@ -1,10 +1,24 @@
 #ifndef TOOLS_H
 #define TOOLS_H
 
-#include "levenshtein.hpp"
 #include "rng.h"
+#include "fasta_utils_seqan.hpp"
+#include "fastq_utils_seqan.hpp"
+#include "levenshtein.hpp"
+#include "metrics.h"
+#include "anchor_gen.h"
+#include "candidate_retriever.h"
+#include "index_query.h"
+#include "mtree.h"
+#include "functions.h"
+#include "access_log.hpp"
+#include "data_types.h"
 
+// #define SEQAN_NO_INCLUDE_OMP
 #include <seqan/find.h> 
+#include <seqan/index.h>
+#include <seqan/seeds.h>
+#include <seqan/align.h>
 
 #include <iostream>
 #include <vector>
@@ -35,3 +49,21 @@ std::vector<int> find_all_occurrences_approx(
 std::vector<std::string> posVecToStrVec(const std::vector<int> &pos);
 
 #endif
+
+// ======================== 构建函数 ========================
+void build_mtree_from_ref(const std::string &ref, int k, MTree &tree);
+
+// ======================== 查询函数 ========================
+std::pair<vector<int>, size_t> retrieveCandidates_mtree(
+    MTree &mtree,
+    const std::string &query,
+    int maxDist);
+
+
+std::vector<int> retrieveCandidates_sae(
+    seqan::Index<seqan::Dna5String, seqan::FMIndex<>> &fm_index, // 显式类型
+    const seqan::Dna5String &ref_seq, // 显式类型
+    const std::string &query,
+    int maxDist,
+    int seed_len);
+

@@ -10,6 +10,7 @@ SRC = src/anchor_gen.cpp \
       src/metrics.cpp \
       src/rng.cpp \
       src/tools.cpp \
+      src/accesslogger.cpp \
       main.cpp
 #       src/test.cpp \
 

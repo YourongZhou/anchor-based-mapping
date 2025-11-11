@@ -1,215 +1,6 @@
 // main.cpp
 
-#include "rng.h"
-#include "fasta_utils_seqan.hpp"
-#include "fastq_utils_seqan.hpp"
-#include "levenshtein.hpp"
-#include "metrics.h"
-#include "anchor_gen.h"
 #include "tools.h"
-#include "candidate_retriever.h"
-#include "index_query.h"
-#include "mtree.h"
-#include "functions.h"
-
-// #define SEQAN_NO_INCLUDE_OMP
-#include <seqan/find.h> 
-#include <seqan/index.h>
-#include <seqan/seeds.h>
-#include <seqan/align.h>
-
-#include <iostream>
-#include <vector>
-#include <string>
-#include <unordered_set>
-#include <algorithm>
-#include <random>
-#include <cstdlib>
-#include <nlohmann/json.hpp>
-
-using namespace std;
-using namespace mt;
-
-
-// Levenshtein 距离封装，只比较 seq
-struct SubstringLevDist {
-    double operator()(const Substring &a, const Substring &b) const {
-        return static_cast<double>(levenshtein(a.seq, b.seq));
-    }
-};
-
-using Data = Substring;
-using Distance = SubstringLevDist;
-using CachedDistance = functions::cached_distance_function<Data, Distance>;
-
-// split function 类型定义
-// using SplitStrategyType = functions::TwoWaySplitStrategy<
-//     functions::random_promotion,
-//     functions::balanced_partition
-// >;
-using SplitStrategyType = functions::OptimizedKSplitStrategy;
-
-// 定义最终 MTree 类型
-using MTree = mtree<Data, Distance, SplitStrategyType>;
-
-// ======================== 构建函数 ========================
-void build_mtree_from_ref(const std::string &ref, int k, MTree &tree) {
-    std::unordered_set<std::string> inserted;  // 记录已插入的序列
-    size_t count = 0;
-
-    for (size_t i = 0; i + k <= ref.size(); ++i) {
-        std::string subseq = ref.substr(i, k);
-        if (inserted.find(subseq) != inserted.end())
-            continue; // 已插入则跳过
-
-        Substring a{subseq, static_cast<int>(i)};
-        tree.add(a);
-        inserted.insert(subseq);
-
-        count++;
-        if (count % 1000 == 0)
-            std::cout << "Inserted " << count << " unique anchors into MTree." << std::endl;
-    }
-
-    std::cout << "MTree construction completed. Total unique anchors: " << count << std::endl;
-}
-
-// ======================== 查询函数 ========================
-std::pair<vector<int>, size_t> retrieveCandidates_mtree(
-    MTree &mtree,
-    const std::string &query,
-    int maxDist)
-{
-    std::vector<int> results;
-
-    Substring query_anchor{query, -1}; // pos = -1 表示查询
-    
-    // 1. 调用函数，'result_struct' 是包含 .matches 和 .nodeAccesses 的结构体
-    auto result_struct = mtree.get_nearest_by_range(query_anchor, maxDist);
-
-    // 2. 遍历结构体内部的 .matches 向量
-    //    (您也可以使用更简洁的 C++11 范围for循环)
-    for (const auto &res : result_struct.matches) {
-        // 'res' 现在直接是 result_item (包含 .data 和 .distance)
-        results.push_back(res.data.pos);
-    }
-
-    // 3. (可选) 获取节点访问次数
-    size_t accesses = result_struct.nodeAccesses;
-    std::cout << "M-Tree search node accesses: " << accesses << std::endl;
-
-    return {results, accesses};
-}
-
-
-std::vector<int> retrieveCandidates_sae(
-    seqan::Index<seqan::Dna5String, seqan::FMIndex<>> &fm_index, // 显式类型
-    const seqan::Dna5String &ref_seq, // 显式类型
-    const std::string &query,
-    int maxDist,
-    int seed_len) 
-{
-    cout << "Getting seed for " << query;
-    // 显式使用 seqan::Score 和 seqan::Simple
-    seqan::Score<int, seqan::Simple> scoring(1, -1, -1); // match=+1, mismatch=-1, gap=-1
-    int xDropThreshold = maxDist * 4; // 经验值
-    // ======================
-
-    std::set<int> unique_positions;
-    std::vector<int> results;
-
-    std::string qseq_str = query;
-    std::transform(qseq_str.begin(), qseq_str.end(), qseq_str.begin(), ::toupper);
-    
-    // 显式使用 seqan::Dna5String 和 seqan::assign
-    seqan::Dna5String qseq;
-    seqan::assign(qseq, qseq_str);
-
-    // 显式类型定义
-    typedef seqan::Seed<seqan::Simple> TSeed;
-    
-    // 显式使用 seqan::Finder
-    seqan::Finder<seqan::Index<seqan::Dna5String, seqan::FMIndex<>>> finder(fm_index);
-
-    // 遍历所有可能的种子
-    for (size_t i = 0; i + seed_len <= qseq_str.size(); i += 3) {
-        std::string seed_str = qseq_str.substr(i, seed_len);
-        cout << "seed: " << seed_str << " ";
-        seqan::Dna5String seed;
-        seqan::assign(seed, seed_str);
-        
-        seqan::clear(finder);
-        
-        // 显式使用 seqan::find, seqan::position
-        while (seqan::find(finder, seed)) {
-            cout << "found seed!";
-            size_t seed_ini_pos_on_ref = seqan::position(finder);
-            
-            // 显式使用 TSeed 构造函数
-            TSeed s(seed_ini_pos_on_ref, i, 
-                    seed_ini_pos_on_ref + seed_len - 1, i + seed_len - 1);
-            
-            // 显式使用 seqan::extendSeed, seqan::EXTEND_BOTH, seqan::GappedXDrop
-            seqan::extendSeed(s, ref_seq, qseq, seqan::EXTEND_BOTH, scoring, xDropThreshold, seqan::GappedXDrop());
-
-            // 显式使用 seqan::beginPositionH
-            unsigned sb = seqan::beginPositionH(s);
-            
-            // 存储起始位置
-            unique_positions.insert((int)sb); 
-        }
-    }
-
-    results.reserve(unique_positions.size());
-    results.assign(unique_positions.begin(), unique_positions.end());
-    
-    return results;
-}
-
-// // 递归遍历所有节点
-// template <typename Data, typename Distance, typename SplitFunc>
-// void traverse_mtree_levels(
-//     typename mtree<Data, Distance, SplitFunc>::Node* node,
-//     int level,
-//     std::map<int, std::vector<float>>& radii_by_level
-// ) {
-//     if (!node) return;
-
-//     // 遍历该节点的每个 entry
-//     for (const auto& entry : node->entries) {
-//         // 记录该 entry 的覆盖半径
-//         radii_by_level[level].push_back(entry.radius);
-
-//         // 若该 entry 有子节点，则递归下去
-//         if (entry.child != nullptr) {
-//             traverse_mtree_levels<Data, Distance, SplitFunc>(entry.child, level + 1, radii_by_level);
-//         }
-//     }
-// }
-
-// // 打印统计信息
-// template <typename Data, typename Distance, typename SplitFunc>
-// void print_mtree_radius_distribution(const mtree<Data, Distance, SplitFunc>& tree) {
-//     std::map<int, std::vector<float>> radii_by_level;
-//     traverse_mtree_levels<Data, Distance, SplitFunc>(tree.root, 0, radii_by_level);
-
-//     std::cout << "\n===== M-tree Radius Distribution =====" << std::endl;
-//     for (const auto& [level, radii] : radii_by_level) {
-//         double mean = 0, maxr = 0, minr = 1e9;
-//         for (auto r : radii) {
-//             mean += r;
-//             maxr = std::max(maxr, (double)r);
-//             minr = std::min(minr, (double)r);
-//         }
-//         mean /= radii.size();
-//         std::cout << "Level " << level
-//                   << " | Nodes: " << radii.size()
-//                   << " | mean radius = " << mean
-//                   << " | min = " << minr
-//                   << " | max = " << maxr
-//                   << std::endl;
-//     }
-// }
 
 
 int main(int argc, char* argv[]) {
@@ -461,18 +252,6 @@ int main(int argc, char* argv[]) {
             return 1; // 或者采取其他错误处理措施
         }
     }
-    // using json = nlohmann::json;
-
-    // json j;
-    // for (auto &[seq, matches] : anchor_index) {
-    //     for (auto &[pos, dist] : matches) {
-    //         j["anchors"].push_back({{"seq", seq}, {"pos", pos}, {"dist", dist}});
-    //     }
-    // }
-    // j["queries"] = queries;
-
-    // ofstream out("anchor_index.json");
-    // out << j.dump(2);
 
     // ----- 查询 + 评估 -----
     // 用于累加每条 query 的 recall / precision
@@ -489,7 +268,6 @@ int main(int argc, char* argv[]) {
     for (size_t i = 0; i < num_queries; ++i) {
         const auto &q = queries[i];
         const auto &truth_pos = truth_positions[i];
-
         
         // === metrics ===
         size_t count = 0;  // 保存 dist_list.size()
@@ -557,6 +335,9 @@ int main(int argc, char* argv[]) {
     double fp_over_tp = (sumTP > 0) ? double(sumFP) / double(sumTP) : 0.0;
     double avg_avg_dist = sum_avg_dist / num_queries;
     double avg_max_dist = sum_max_dist / num_queries;
+
+    // 内存访问
+    globalLogger.report();
 
     cout << "\n===== Average per-query Metrics =====\n";
     cout << "Average TP: " << (double)sumTP / num_queries << "\n";

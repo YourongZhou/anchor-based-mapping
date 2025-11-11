@@ -1,17 +1,5 @@
 #include "tools.h"
-#include "levenshtein.hpp"
-#include "rng.h"
 
-#include <seqan/find.h> 
-
-#include <iostream>
-#include <vector>
-#include <string>
-#include <unordered_set>
-#include <algorithm>
-#include <random>
-#include <cstdlib>
-#include <nlohmann/json.hpp>
 
 // 从 reference 随机生成 num_queries 条长度为 query_len 的子串（模拟 reads）
 std::vector<std::string> simulate_queries(const std::string &ref,
@@ -83,4 +71,119 @@ std::vector<std::string> posVecToStrVec(const std::vector<int> &pos) {
     out.reserve(pos.size());
     for (int p : pos) out.push_back(std::to_string(p));
     return out;
+}
+
+// ======================== 构建函数 ========================
+void build_mtree_from_ref(const std::string &ref, int k, MTree &tree) {
+    std::unordered_set<std::string> inserted;  // 记录已插入的序列
+    size_t count = 0;
+
+    for (size_t i = 0; i + k <= ref.size(); ++i) {
+        std::string subseq = ref.substr(i, k);
+        if (inserted.find(subseq) != inserted.end())
+            continue; // 已插入则跳过
+
+        Substring a{subseq, static_cast<int>(i)};
+        tree.add(a);
+        inserted.insert(subseq);
+
+        count++;
+        if (count % 1000 == 0)
+            std::cout << "Inserted " << count << " unique anchors into MTree." << std::endl;
+    }
+
+    std::cout << "MTree construction completed. Total unique anchors: " << count << std::endl;
+}
+
+// ======================== 查询函数 ========================
+std::pair<vector<int>, size_t> retrieveCandidates_mtree(
+    MTree &mtree,
+    const std::string &query,
+    int maxDist)
+{
+    std::vector<int> results;
+
+    Substring query_anchor{query, -1}; // pos = -1 表示查询
+    
+    // 1. 调用函数，'result_struct' 是包含 .matches 和 .nodeAccesses 的结构体
+    auto result_struct = mtree.get_nearest_by_range(query_anchor, maxDist);
+
+    // 2. 遍历结构体内部的 .matches 向量
+    for (const auto &res : result_struct.matches) {
+        // 'res' 现在直接是 result_item (包含 .data 和 .distance)
+        results.push_back(res.data.pos);
+    }
+
+    // 3. (可选) 获取节点访问次数
+    size_t accesses = result_struct.nodeAccesses;
+    std::cout << "M-Tree search node accesses: " << accesses << std::endl;
+
+    return {results, accesses};
+}
+
+
+std::vector<int> retrieveCandidates_sae(
+    seqan::Index<seqan::Dna5String, seqan::FMIndex<>> &fm_index, // 显式类型
+    const seqan::Dna5String &ref_seq, // 显式类型
+    const std::string &query,
+    int maxDist,
+    int seed_len) 
+{
+    cout << "Getting seed for " << query;
+    // 显式使用 seqan::Score 和 seqan::Simple
+    seqan::Score<int, seqan::Simple> scoring(1, -1, -1); // match=+1, mismatch=-1, gap=-1
+    int xDropThreshold = maxDist * 4; // 经验值
+    // ======================
+
+    std::set<int> unique_positions;
+    std::vector<int> results;
+
+    std::string qseq_str = query;
+    std::transform(qseq_str.begin(), qseq_str.end(), qseq_str.begin(), ::toupper);
+    
+    // 显式使用 seqan::Dna5String 和 seqan::assign
+    seqan::Dna5String qseq;
+    seqan::assign(qseq, qseq_str);
+
+    // 显式类型定义
+    typedef seqan::Seed<seqan::Simple> TSeed;
+    
+    // 显式使用 seqan::Finder
+    seqan::Finder<seqan::Index<seqan::Dna5String, seqan::FMIndex<>>> finder(fm_index);
+
+    // 遍历所有可能的种子
+    for (size_t i = 0; i + seed_len <= qseq_str.size(); i += 3) {
+        globalLogger.accessIndex("seed");
+        std::string seed_str = qseq_str.substr(i, seed_len);
+        // cout << "seed: " << seed_str << " ";
+        seqan::Dna5String seed;
+        seqan::assign(seed, seed_str);
+        
+        seqan::clear(finder);
+        
+        // 显式使用 seqan::find, seqan::position
+        while (seqan::find(finder, seed)) {
+            cout << "found seed!";
+            globalLogger.accessCandidate("extend");
+            size_t seed_ini_pos_on_ref = seqan::position(finder);
+            
+            // 显式使用 TSeed 构造函数
+            TSeed s(seed_ini_pos_on_ref, i, 
+                    seed_ini_pos_on_ref + seed_len - 1, i + seed_len - 1);
+            
+            // 显式使用 seqan::extendSeed, seqan::EXTEND_BOTH, seqan::GappedXDrop
+            seqan::extendSeed(s, ref_seq, qseq, seqan::EXTEND_BOTH, scoring, xDropThreshold, seqan::GappedXDrop());
+
+            // 显式使用 seqan::beginPositionH
+            unsigned sb = seqan::beginPositionH(s);
+            
+            // 存储起始位置
+            unique_positions.insert((int)sb); 
+        }
+    }
+
+    results.reserve(unique_positions.size());
+    results.assign(unique_positions.begin(), unique_positions.end());
+    
+    return results;
 }

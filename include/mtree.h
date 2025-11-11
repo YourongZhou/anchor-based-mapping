@@ -1,7 +1,6 @@
 #ifndef MTREE_H_
 #define MTREE_H_
 
-
 #include <iterator>
 #include <limits>
 #include <map>
@@ -11,6 +10,7 @@
 
 #include "mtree_types.h"
 #include "functions.h"
+#include "access_log.hpp"
 
 
 
@@ -147,7 +147,8 @@ public:
 	class query {
 	public:
 		mutable size_t nodeAccess;
-
+		mutable std::vector<double> accessedLeafNodeRadii;
+		
 		/**
 		 * @brief The type of the results for nearest-neighbor queries.
 		 */
@@ -372,18 +373,27 @@ public:
 
 					ItemWithDistances<Node> pending = pendingQueue.top();
 					pendingQueue.pop();
-					_query->nodeAccess++; // 计数 nodeAccess
+					// _query->nodeAccess++; // 计数 nodeAccess
 
 					const Node* node = pending.item;
 
 					for(typename Node::ChildrenMap::const_iterator i = node->children.begin(); i != node->children.end(); ++i) {
 						IndexItem* child = i->second;
+						// --- 1. 第一次剪枝检查 (基于父节点到子节点距离) ---
 						if(std::abs(pending.distance - child->distanceToParent) - child->radius <= _query->range) {
 							double childDistance = _query->_mtree->distance_function(_query->data, child->data);
 							double childMinDistance = std::max(childDistance - child->radius, 0.0);
+							// --- 2. 第二次剪枝检查 (基于最小距离) ---
 							if(childMinDistance <= _query->range) {
+								LeafNode* leafnode = dynamic_cast<LeafNode*>(child);
+								if(leafnode != NULL) {
+									//叶子节点
+									_query->nodeAccess++; // 计数叶子节点的 node access
+								}
 								Entry* entry = dynamic_cast<Entry*>(child);
-								if(entry != NULL) {
+								if(entry != NULL) { // 数据节点
+									std::cout << "Getting candidate..." << std::endl;
+									globalLogger.accessCandidate("candidate"); // 计数 Entry
 									nearestQueue.push({entry, childDistance, childMinDistance});
 								} else {
 									Node* node = dynamic_cast<Node*>(child);
@@ -648,6 +658,9 @@ public:
         
         // 4. 从 query 对象中检索统计数据
         result.nodeAccesses = lazy_query.nodeAccess;
+
+		// log
+		globalLogger.accessIndex("mtree node");
         
         return result;
 	}
