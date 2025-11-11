@@ -279,8 +279,11 @@ int main(int argc, char* argv[]) {
         
         vector<string> cand_str;
         if (method == "mtree"){
-            auto [pos, access] = retrieveCandidates_mtree(mtree, queries[i], maxDist);
+            auto [pos, access, radii_vec] = retrieveCandidates_mtree(mtree, queries[i], maxDist);
             cand_str = posVecToStrVec(pos);
+            for(double r : radii_vec) {
+                std::cout << "LeafNode Radius: " << r << std::endl;
+            }
         } else if (method == "sae"){
             cand_str = posVecToStrVec(retrieveCandidates_sae(fm_index, ref_seq, queries[i], maxDist, seed_len));
         } else{

@@ -54,7 +54,7 @@ std::vector<std::string> posVecToStrVec(const std::vector<int> &pos);
 void build_mtree_from_ref(const std::string &ref, int k, MTree &tree);
 
 // ======================== 查询函数 ========================
-std::pair<vector<int>, size_t> retrieveCandidates_mtree(
+std::tuple<vector<int>, size_t, std::vector<double>> retrieveCandidates_mtree(
     MTree &mtree,
     const std::string &query,
     int maxDist);

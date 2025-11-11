@@ -96,7 +96,7 @@ void build_mtree_from_ref(const std::string &ref, int k, MTree &tree) {
 }
 
 // ======================== 查询函数 ========================
-std::pair<vector<int>, size_t> retrieveCandidates_mtree(
+std::tuple<vector<int>, size_t, std::vector<double>> retrieveCandidates_mtree(
     MTree &mtree,
     const std::string &query,
     int maxDist)
@@ -118,7 +118,9 @@ std::pair<vector<int>, size_t> retrieveCandidates_mtree(
     size_t accesses = result_struct.nodeAccesses;
     std::cout << "M-Tree search node accesses: " << accesses << std::endl;
 
-    return {results, accesses};
+    std::vector<double> radii = std::move(result_struct.leafNodeRadii);
+
+    return {results, accesses, radii};
 }
 
 

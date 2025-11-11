@@ -148,7 +148,7 @@ public:
 	public:
 		mutable size_t nodeAccess;
 		mutable std::vector<double> accessedLeafNodeRadii;
-		
+
 		/**
 		 * @brief The type of the results for nearest-neighbor queries.
 		 */
@@ -245,6 +245,7 @@ public:
 				  yieldedCount(0)
 			{
 				_query->nodeAccess = 0; //每次开始迭代时重复计数
+				_query->accessedLeafNodeRadii.clear();
 				if(_query->_mtree->root == NULL) {
 					isEnd = true;
 					return;
@@ -389,6 +390,7 @@ public:
 								if(leafnode != NULL) {
 									//叶子节点
 									_query->nodeAccess++; // 计数叶子节点的 node access
+									_query->accessedLeafNodeRadii.push_back(leafnode->radius);
 								}
 								Entry* entry = dynamic_cast<Entry*>(child);
 								if(entry != NULL) { // 数据节点
@@ -484,6 +486,9 @@ public:
         
         /** @brief 搜索期间访问的节点数。 */
         size_t nodeAccesses;
+
+		/** @brief 搜索期间访问的 LeafNode 的半径列表。 */
+        std::vector<double> leafNodeRadii;
     };
 
 
@@ -658,6 +663,7 @@ public:
         
         // 4. 从 query 对象中检索统计数据
         result.nodeAccesses = lazy_query.nodeAccess;
+		result.leafNodeRadii = std::move(lazy_query.accessedLeafNodeRadii);
 
 		// log
 		globalLogger.accessIndex("mtree node");

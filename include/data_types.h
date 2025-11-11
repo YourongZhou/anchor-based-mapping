@@ -17,11 +17,11 @@ using Distance = SubstringLevDist;
 using CachedDistance = functions::cached_distance_function<Data, Distance>;
 
 // split function 类型定义
-// using SplitStrategyType = functions::TwoWaySplitStrategy<
-//     functions::random_promotion,
-//     functions::balanced_partition
-// >;
-using SplitStrategyType = functions::OptimizedKSplitStrategy;
+using SplitStrategyType = functions::TwoWaySplitStrategy<
+    functions::random_promotion,
+    functions::balanced_partition
+>;
+// using SplitStrategyType = functions::OptimizedKSplitStrategy;
 using MTree = mtree<Data, Distance, SplitStrategyType>;
 
 #endif // DATA_TYPES_H
