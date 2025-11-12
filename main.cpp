@@ -1,6 +1,7 @@
 // main.cpp
 
 #include "tools.h"
+#include <omp.h>
 
 
 int main(int argc, char* argv[]) {
@@ -358,6 +359,9 @@ int main(int argc, char* argv[]) {
     printf("\nCalculate overlap time:%ld", (time_overlap - time_tree));
     printf("\nGet ground truth time:%ld", (time_truth - time_overlap));
     printf("\nQuery time:%ld", (time_query - time_truth));
+
+    cout << "Original sequence length: " << records[0].seq.size() <<endl;
+
 
     return 0;
 }

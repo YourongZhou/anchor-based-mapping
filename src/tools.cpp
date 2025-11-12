@@ -154,7 +154,12 @@ std::vector<int> retrieveCandidates_sae(
     seqan::Finder<seqan::Index<seqan::Dna5String, seqan::FMIndex<>>> finder(fm_index);
 
     // 遍历所有可能的种子
-    for (size_t i = 0; i + seed_len <= qseq_str.size(); i += 3) {
+
+    // 计算种子数量（根据 maxDist，代表容错能力）
+    //maxDist 越大，种子数量越多；容错能力越强
+    seed_len = qseq_str.size() / maxDist;
+    for (size_t i = 0; i + seed_len <= qseq_str.size(); i += seed_len) {
+    // for (size_t i = 0; i + seed_len <= qseq_str.size(); i += 3) {
         globalLogger.accessIndex("seed");
         std::string seed_str = qseq_str.substr(i, seed_len);
         // cout << "seed: " << seed_str << " ";
