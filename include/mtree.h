@@ -394,7 +394,7 @@ public:
 								}
 								Entry* entry = dynamic_cast<Entry*>(child);
 								if(entry != NULL) { // 数据节点
-									std::cout << "Getting candidate..." << std::endl;
+									#pragma omp critical (GlobalLoggerLock)
 									globalLogger.accessCandidate("candidate"); // 计数 Entry
 									nearestQueue.push({entry, childDistance, childMinDistance});
 								} else {

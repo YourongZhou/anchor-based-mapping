@@ -29,6 +29,8 @@ int main(int argc, char* argv[]) {
     bool auto_gen = false;
     int seed_len = 10;
     string method = "mtree"; // 方法，mtree, seed-and-extend, 还是 anchor
+    std::string index_dir = "./index_cache"; // 默认缓存目录
+    bool force_rebuild = false;
 
     // ----- 解析命令行参数 -----
     for (int i = 1; i < argc; ++i) {
@@ -105,6 +107,10 @@ int main(int argc, char* argv[]) {
                 cerr << "Invalid value for --split_strategy (expect mtree or fmtree)\n";
                 return 1;
             }
+        } else if (arg == "--index_dir" && i + 1 < argc) {
+        index_dir = argv[++i];
+        } else if (arg == "--force_rebuild") {
+            force_rebuild = true;
         } else {
             cerr << "Unknown or incomplete argument: " << arg << "\n";
             return 1;
@@ -230,10 +236,12 @@ int main(int argc, char* argv[]) {
     // ----- ground truth -----
     cout << "Generating ground truths:\n";
     cout << "Number of queries: " << num_queries << endl;
-    vector<vector<int>> truth_positions;
-    truth_positions.reserve(num_queries);
-    for (const auto &q : queries) {
-        truth_positions.push_back(find_all_occurrences_approx(q, ref, maxDist));
+    vector<vector<int>> truth_positions(num_queries); // 预先分配大小
+
+    // 2. 并行化 Ground Truth 循环
+    #pragma omp parallel for default(none) shared(queries, ref, maxDist, truth_positions, num_queries)
+    for (size_t i = 0; i < num_queries; ++i) {
+        truth_positions[i] = find_all_occurrences_approx(queries[i], ref, maxDist);
     }
     time_truth = time(NULL);
     
@@ -265,7 +273,12 @@ int main(int argc, char* argv[]) {
     double sum_avg_dist = 0.0;
     double sum_max_dist = 0.0;
     vector<size_t> dist_counts(num_queries);
+    vector<size_t> all_node_accesses(num_queries);
+    vector<vector<double>> all_radii_vecs(num_queries);
 
+    #pragma omp parallel for default(none) \
+        shared(queries, truth_positions, mtree, maxDist, fm_index, ref_seq, seed_len, anchor_index, anchors, use_all, start_idx, end_idx, last_random, anchor_radius, ref, method, dist_counts, all_node_accesses, all_radii_vecs, std::cout, num_queries) \
+        reduction(+:sumTP, sumFP, sumFN, sum_avg_dist, sum_max_dist)
     for (size_t i = 0; i < num_queries; ++i) {
         const auto &q = queries[i];
         const auto &truth_pos = truth_positions[i];
@@ -273,18 +286,20 @@ int main(int argc, char* argv[]) {
         // === metrics ===
         size_t count = 0;  // 保存 dist_list.size()
         const auto &truth_str = posVecToStrVec(truth_positions[i]);
-        cout << "truth positions: " << endl;
-        for (size_t j = 0; j < truth_positions[i].size(); ++j) {
-            std::cout << j << ": " << truth_positions[i][j] << std::endl;
-        }
-        
         vector<string> cand_str;
+        
+        // --- 临时变量，用于存储此线程的结果 ---
+        size_t node_access_local = 0;
+        std::vector<double> radii_vec_local;
+        
         if (method == "mtree"){
             auto [pos, access, radii_vec] = retrieveCandidates_mtree(mtree, queries[i], maxDist);
             cand_str = posVecToStrVec(pos);
-            for(double r : radii_vec) {
-                std::cout << "LeafNode Radius: " << r << std::endl;
-            }
+            
+            // 缓存结果，而不是直接打印
+            node_access_local = access;
+            radii_vec_local = std::move(radii_vec);
+
         } else if (method == "sae"){
             cand_str = posVecToStrVec(retrieveCandidates_sae(fm_index, ref_seq, queries[i], maxDist, seed_len));
         } else{
@@ -292,31 +307,37 @@ int main(int argc, char* argv[]) {
         };
 
         dist_counts[i] = count;
-        cout << "candidate positions: " << endl;
-        for (size_t j = 0; j < cand_str.size(); ++j) {
-            std::cout << j << ": " << cand_str[j] << std::endl;
-        }
 
         int tp = metrics::countTP(truth_str, cand_str);
         int fp = metrics::countFP(truth_str, cand_str);
         int fn = metrics::countFN(truth_str, cand_str);
         auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_str, ref);
 
-        // double recall = (tp + fn > 0) ? double(tp) / double(tp + fn) : 0.0;
-        // double precision = (tp + fp > 0) ? double(tp) / double(tp + fp) : 0.0;
-        // double fp_over_tp = (tp > 0) ? double(fp) / double(tp) : 0.0;
-
         sumTP += tp;
         sumFP += fp;
         sumFN += fn;
-        // sumRecall += recall;
-        // sumPrecision += precision;
-        // sum_fp_over_tp += fp_over_tp;
         sum_avg_dist += avg_dist;
         sum_max_dist += max_dist;
-        // metrics::report(truth_str, cand_str);
+
+        // 将缓存的结果安全地存入主向量
+        //    由于 i 是唯一的，这不需要锁
+        all_node_accesses[i] = node_access_local;
+        all_radii_vecs[i] = std::move(radii_vec_local);
     }
     time_query = time(NULL);
+
+    // 5. 现在，在循环*之后*，安全地打印所有缓存的输出
+    cout << "\n--- Begin Buffered Output ---\n";
+    for (size_t i = 0; i < num_queries; ++i) {
+        if (method == "mtree") {
+            // 这是您 Python 脚本依赖的输出
+            std::cout << "M-Tree search node accesses: " << all_node_accesses[i] << std::endl;
+            for(double r : all_radii_vecs[i]) {
+                std::cout << "LeafNode Radius: " << r << std::endl;
+            }
+        }
+    }
+    cout << "--- End Buffered Output ---\n";
     // 保存到文件
     ofstream ofs("dist_counts_radius_" + to_string(anchor_radius) + ".txt");
 

@@ -27,6 +27,8 @@
 #include <algorithm>
 #include <random>
 #include <cstdlib>
+#include <sstream>
+#include <iomanip>
 #include <nlohmann/json.hpp>
 
 // 从 reference 随机生成 num_queries 条长度为 query_len 的子串（模拟 reads）
@@ -67,3 +69,13 @@ std::vector<int> retrieveCandidates_sae(
     int maxDist,
     int seed_len);
 
+std::string generate_index_filename(
+    const std::string& method,
+    const std::string& index_dir,
+    size_t ref_len,
+    size_t anchor_len,
+    int num_anchors);
+
+// 辅助函数，检查文件是否存在
+#include <sys/stat.h>
+bool file_exists(const std::string& filename);

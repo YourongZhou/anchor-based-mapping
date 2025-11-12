@@ -75,17 +75,39 @@ std::vector<std::string> posVecToStrVec(const std::vector<int> &pos) {
 
 // ======================== 构建函数 ========================
 void build_mtree_from_ref(const std::string &ref, int k, MTree &tree) {
-    std::unordered_set<std::string> inserted;  // 记录已插入的序列
+    // --- 1. (并行) 阶段 1: 提取所有 k-mer 及其位置 ---
+    // (注意：这里包含重复项，我们稍后处理)
+    // 预先分配内存以避免并行时的 re-allocation
+    std::vector<std::pair<std::string, int>> all_kmers;
+    all_kmers.resize(ref.size() - k + 1);
+
+    // 使用 OpenMP 并行化 substr 提取
+    // 这是可以安全并行的，因为每个线程写入 all_kmers[i] 的不同位置
+    #pragma omp parallel for default(none) shared(ref, k, all_kmers)
+    for (size_t i = 0; i <= ref.size() - k; ++i) {
+        all_kmers[i] = {ref.substr(i, k), static_cast<int>(i)};
+    }
+
+    // --- 2. (串行) 阶段 2: 消除重复并构建 M-Tree ---
+    // 此时，我们回到单线程，因为 tree.add() 必须串行
+    std::cout << "Parallel k-mer extraction complete. Deduplicating and building tree..." << std::endl;
+
+    std::unordered_set<std::string> inserted; // 记录已插入的序列
     size_t count = 0;
 
-    for (size_t i = 0; i + k <= ref.size(); ++i) {
-        std::string subseq = ref.substr(i, k);
+    // 遍历我们收集的 k-mer (包含重复)
+    for (const auto& kv_pair : all_kmers) {
+        const std::string& subseq = kv_pair.first;
+        int pos = kv_pair.second;
+
+        // 检查是否已经插入过
         if (inserted.find(subseq) != inserted.end())
             continue; // 已插入则跳过
 
-        Substring a{subseq, static_cast<int>(i)};
+        // 这是该 k-mer 第一次出现，插入 M-Tree
+        Substring a{subseq, pos};
         tree.add(a);
-        inserted.insert(subseq);
+        inserted.insert(subseq); // 标记为已插入
 
         count++;
         if (count % 1000 == 0)
@@ -160,7 +182,10 @@ std::vector<int> retrieveCandidates_sae(
     seed_len = qseq_str.size() / maxDist;
     for (size_t i = 0; i + seed_len <= qseq_str.size(); i += seed_len) {
     // for (size_t i = 0; i + seed_len <= qseq_str.size(); i += 3) {
-        globalLogger.accessIndex("seed");
+        #pragma omp critical (GlobalLoggerLock)
+        {
+            globalLogger.accessIndex("seed");
+        }
         std::string seed_str = qseq_str.substr(i, seed_len);
         // cout << "seed: " << seed_str << " ";
         seqan::Dna5String seed;
@@ -170,8 +195,11 @@ std::vector<int> retrieveCandidates_sae(
         
         // 显式使用 seqan::find, seqan::position
         while (seqan::find(finder, seed)) {
-            cout << "found seed!";
-            globalLogger.accessCandidate("extend");
+            // cout << "found seed!";
+            #pragma omp critical (GlobalLoggerLock)
+            {
+                globalLogger.accessCandidate("extend");
+            }
             size_t seed_ini_pos_on_ref = seqan::position(finder);
             
             // 显式使用 TSeed 构造函数
@@ -193,4 +221,30 @@ std::vector<int> retrieveCandidates_sae(
     results.assign(unique_positions.begin(), unique_positions.end());
     
     return results;
+}
+
+std::string generate_index_filename(
+    const std::string& method,
+    const std::string& index_dir,
+    size_t ref_len,
+    size_t anchor_len,
+    int num_anchors)
+{
+    std::stringstream ss;
+    ss << index_dir << "/";
+    ss << method << "_ref" << ref_len;
+    
+    if (method == "anchor") {
+        ss << "_k" << anchor_len << "_n" << num_anchors;
+    }
+    
+    ss << ".index";
+    return ss.str();
+}
+
+// 辅助函数，检查文件是否存在
+#include <sys/stat.h>
+bool file_exists(const std::string& filename) {
+    struct stat buffer;   
+    return (stat(filename.c_str(), &buffer) == 0); 
 }
