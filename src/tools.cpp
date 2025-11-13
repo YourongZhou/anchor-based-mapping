@@ -248,3 +248,70 @@ bool file_exists(const std::string& filename) {
     struct stat buffer;   
     return (stat(filename.c_str(), &buffer) == 0); 
 }
+
+// std::string generate_index_filename(
+//     const std::string& method,
+//     const std::string& index_dir,
+//     size_t ref_len,
+//     size_t anchor_len, // k
+//     const MTree& config_tree // 传入一个配置好的 MTree
+// ) {
+//     std::stringstream ss;
+//     ss << index_dir << "/" << method 
+//        << "_ref" << ref_len 
+//        << "_k" << anchor_len
+//        << "_minN" << config_tree.minNodeCapacity
+//        << "_maxN" << config_tree.maxNodeCapacity
+//        << "_leafR" << config_tree.leafRadiusThreshold
+//        << "_compMin" << config_tree.minCompactnessThreshold
+//        << "_compFac" << config_tree.preSplitRadiusRatio;
+        
+//     ss << ".mtree_index";
+//     return ss.str();
+// }
+
+// std::string get_fm_index_cache_path(size_t ref_len) {
+//     // 直接使用传入的长度参数
+//     return "fm_index_cache_" + std::to_string(ref_len) + ".bin";
+// }
+
+// // 写入缓存的函数
+// bool write_fm_index_cache(const seqan::Index<seqan::Dna5String, seqan::FMIndex<>>& fm_index, size_t ref_len) {
+//     const std::string cache_path = get_fm_index_cache_path(ref_len);
+
+//     std::fstream file(cache_path, 
+//                       std::ios::out | std::ios::binary);
+//     if (!file.is_open()) {
+//         std::cerr << "[ERROR] Failed to open cache file for writing: " << cache_path << "\n";
+//         return false;
+//     }
+    
+//     seqan::write(file, fm_index);
+//     file.close();
+//     std::cout << "[INFO] FM-Index cached successfully to " << cache_path << "\n";
+//     return true;
+// }
+
+// // 读取缓存的函数
+// bool load_fm_index_cache(seqan::Index<seqan::Dna5String, seqan::FMIndex<>>& fm_index, size_t ref_len) {
+//     const std::string cache_path = get_fm_index_cache_path(ref_len);
+
+//     std::fstream file(cache_path, 
+//                       std::ios::in | std::ios::binary);
+//     if (!file.is_open()) {
+//         return false; // 文件不存在，表示没有缓存
+//     }
+
+//     try {
+//         seqan::load(file, fm_index);
+//         file.close();
+//         std::cout << "[INFO] FM-Index loaded successfully from cache: " << cache_path << "\n";
+//         return true;
+//     } catch (const seqan::Exception& e) {
+//         std::cerr << "[ERROR] Failed to load FM-Index from cache: " << e.what() << ". Rebuilding index.\n";
+//         file.close();
+//         // 如果加载失败，删除损坏的文件
+//         std::remove(cache_path.c_str()); 
+//         return false;
+//     }
+// }

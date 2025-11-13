@@ -19,6 +19,8 @@
 #include <seqan/index.h>
 #include <seqan/seeds.h>
 #include <seqan/align.h>
+#include <seqan/store.h>
+#include <seqan/stream.h>
 
 #include <iostream>
 #include <vector>
@@ -79,3 +81,11 @@ std::string generate_index_filename(
 // 辅助函数，检查文件是否存在
 #include <sys/stat.h>
 bool file_exists(const std::string& filename);
+
+std::string get_fm_index_cache_path(size_t ref_len);
+
+// 写入缓存的函数
+bool write_fm_index_cache(const seqan::Index<seqan::Dna5String, seqan::FMIndex<>>& fm_index, size_t ref_len);
+
+// 读取缓存的函数
+bool load_fm_index_cache(seqan::Index<seqan::Dna5String, seqan::FMIndex<>>& fm_index, size_t ref_len);

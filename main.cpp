@@ -167,7 +167,7 @@ int main(int argc, char* argv[]) {
         Distance(),                 // 距离函数
         SplitStrategyType()         // split function
     );
-
+    
     if (method == "mtree"){
         build_mtree_from_ref(ref, anchor_len, mtree);
         time_tree = time(NULL);
@@ -242,6 +242,29 @@ int main(int argc, char* argv[]) {
     #pragma omp parallel for default(none) shared(queries, ref, maxDist, truth_positions, num_queries)
     for (size_t i = 0; i < num_queries; ++i) {
         truth_positions[i] = find_all_occurrences_approx(queries[i], ref, maxDist);
+    }
+
+    vector<string> filtered_queries;
+    vector<vector<int>> filtered_truth_positions;
+    size_t new_num_queries = 0;
+
+    for (size_t i = 0; i < num_queries; ++i) {
+        if (!truth_positions[i].empty()) {
+            filtered_queries.push_back(queries[i]);
+            filtered_truth_positions.push_back(truth_positions[i]);
+            new_num_queries++;
+        }
+    }
+
+    // 替换原始数据
+    if (new_num_queries < num_queries) {
+        std::cout << "\n[FILTER] Removed " << (num_queries - new_num_queries) 
+                  << " queries with no ground truth (maxDist=" << maxDist << ").\n";
+        queries = std::move(filtered_queries);
+        truth_positions = std::move(filtered_truth_positions);
+        num_queries = new_num_queries;
+    } else {
+        std::cout << "\n[FILTER] All " << num_queries << " queries have ground truth.\n";
     }
     time_truth = time(NULL);
     
@@ -326,11 +349,10 @@ int main(int argc, char* argv[]) {
     }
     time_query = time(NULL);
 
-    // 5. 现在，在循环*之后*，安全地打印所有缓存的输出
+    // 5. 现在，在循环之后，安全地打印所有缓存的输出
     cout << "\n--- Begin Buffered Output ---\n";
     for (size_t i = 0; i < num_queries; ++i) {
         if (method == "mtree") {
-            // 这是您 Python 脚本依赖的输出
             std::cout << "M-Tree search node accesses: " << all_node_accesses[i] << std::endl;
             for(double r : all_radii_vecs[i]) {
                 std::cout << "LeafNode Radius: " << r << std::endl;

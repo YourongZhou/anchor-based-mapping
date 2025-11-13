@@ -31,7 +31,7 @@ build_anchor_index(const std::vector<FastaRecord> &anchors,
     int total_substrings = ref_len - k + 1;
 
     // 对每个 anchor 并行计算
-    // #pragma omp parallel for schedule(dynamic)
+    #pragma omp parallel for schedule(dynamic)
     for (size_t a = 0; a < anchors.size(); a++) {
         const auto &anchor = anchors[a].seq;
         std::vector<std::pair<int,int>> local_matches;
@@ -49,12 +49,12 @@ build_anchor_index(const std::vector<FastaRecord> &anchors,
         }
 
         // 合并到全局哈希表
-        // #pragma omp critical
-        // {
+        #pragma omp critical
+        {
         anchor_index[anchor].insert(anchor_index[anchor].end(),
                                     local_matches.begin(),
                                     local_matches.end());
-        // }
+        }
     }
     return anchor_index;
 }
