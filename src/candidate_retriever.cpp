@@ -46,9 +46,9 @@ std::vector<int> retrieveCandidates_anchor(
         if ((int)anchor_seq.size() != k) continue;
         int d = min_edit_distance_window(anchor_seq, query);
 
-        // ✅ 只保留距离在 anchor_radius 以内的 anchor
-        if (d <= anchor_radius)
-            dist_list.emplace_back(anchor_seq, d);
+        // // ✅ 只保留距离在 anchor_radius 以内的 anchor
+        // if (d <= anchor_radius)
+        //     dist_list.emplace_back(anchor_seq, d);
     }
 
     if (dist_list.empty()) return {};

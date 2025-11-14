@@ -1,0 +1,151 @@
+--- Paths ---
+fasta_path: /home/luting/nfs/luting_data/AnchorBasedMapping/ecoli/fasta/ecoli.fa (default)
+fastq_path: /home/luting/nfs/luting_data/AnchorBasedMapping/ecoli/fastq/ERR15404863_1.fastq (default)
+truncate_ref_len: 10000 (default)
+--- Anchor Settings ---
+anchor_len: 20 (default)
+num_anchors: 100 (default)
+use_all: true (default)
+start_idx: 0 (default)
+end_idx: 0.2 (default)
+last_random: false (default)
+use_anchor_radius: false (default)
+anchor_radius: 3 (default)
+seed: 42 (default)
+--- Query Settings ---
+num_queries: 100 (default)
+query_len: 20 (default)
+maxDist_list: [1, 2, 3] 
+--- Method Settings ---
+method: sae
+seed_len: 10 (default)
+index_dir: ./index_cache (default)
+force_rebuild: false (default)
+--- M-Tree Config ---
+min_node_capacity: 50 (default)
+max_node_capacity: -1 (default)
+leaf_radius_threshold: 0 (default)
+compactness_min_capacity: 25 (default)
+compactness_radius_factor: 1.1 (default)
+split_strategy_name: mtree (default)
+auto generate queries: true
+Using reference (truncated) length = 10000
+Building FM-Index:
+[INFO] FM-index constructed successfully and Suffix Array loaded.
+---------------------
+--- START_BATCH_RUN ---
+---------------------
+query_maxDist: 1
+Simulated 100 queries
+Generating ground truths:
+Number of queries: 100
+
+[FILTER] All 100 queries have ground truth.
+
+===== Experiment Parameters =====
+Reference length truncated to: 10000 bp
+Anchor/Query length: 20
+Number of anchors: 100
+Number of queries: 100
+Maximum allowed distance: 1
+=== Access Summary ===
+Index accesses:     100
+Candidate accesses: 100
+Total accesses:     200
+
+===== Average per-query Metrics =====
+Average TP: 1
+Average FP: 0
+Average FN: 0
+Average Recall: 1
+Average Precision: 1
+Average FP/TP: 0
+Average average distance: 0
+Average maximum distance: 0
+===== Average time lapse =====
+Read FASTQA file time:0
+Build Tree time:-1763111416
+Calculate overlap time:0
+Get ground truth time:1763111416
+Query time:0Original sequence length: 4641652
+---------------------
+--- END_BATCH_RUN ---
+---------------------
+---------------------
+--- START_BATCH_RUN ---
+---------------------
+query_maxDist: 2
+Simulated 100 queries
+Generating ground truths:
+Number of queries: 100
+
+[FILTER] All 100 queries have ground truth.
+
+===== Experiment Parameters =====
+Reference length truncated to: 10000 bp
+Anchor/Query length: 20
+Number of anchors: 100
+Number of queries: 100
+Maximum allowed distance: 2
+=== Access Summary ===
+Index accesses:     300
+Candidate accesses: 310
+Total accesses:     610
+
+===== Average per-query Metrics =====
+Average TP: 1
+Average FP: 1.09
+Average FN: 0
+Average Recall: 1
+Average Precision: 0.478469
+Average FP/TP: 1.09
+Average average distance: 6.3
+Average maximum distance: 12.43
+===== Average time lapse =====
+Read FASTQA file time:0
+Build Tree time:-1763111416
+Calculate overlap time:0
+Get ground truth time:1763111416
+Query time:0Original sequence length: 4641652
+---------------------
+--- END_BATCH_RUN ---
+---------------------
+---------------------
+--- START_BATCH_RUN ---
+---------------------
+query_maxDist: 3
+Simulated 100 queries
+Generating ground truths:
+Number of queries: 100
+
+[FILTER] All 100 queries have ground truth.
+
+===== Experiment Parameters =====
+Reference length truncated to: 10000 bp
+Anchor/Query length: 20
+Number of anchors: 100
+Number of queries: 100
+Maximum allowed distance: 3
+=== Access Summary ===
+Index accesses:     600
+Candidate accesses: 1665
+Total accesses:     2265
+
+===== Average per-query Metrics =====
+Average TP: 1
+Average FP: 11.54
+Average FN: 0
+Average Recall: 1
+Average Precision: 0.0797448
+Average FP/TP: 11.54
+Average average distance: 10.1049
+Average maximum distance: 14.26
+===== Average time lapse =====
+Read FASTQA file time:0
+Build Tree time:-1763111416
+Calculate overlap time:0
+Get ground truth time:1763111416
+Query time:0Original sequence length: 4641652
+---------------------
+--- END_BATCH_RUN ---
+---------------------

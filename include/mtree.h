@@ -1250,7 +1250,7 @@ private:
 			if (this->children.size() >= mtree->minCompactnessThreshold &&
 				distance > (this->radius * mtree->preSplitRadiusRatio)) 
 			{
-				std::cout << "leaf node compact!" << std::endl;
+				// std::cout << "leaf node compact!" << std::endl;
 				// --- 失败：触发紧凑性提升 ---
 				// "新建一个节点，抛出异常
 				Node* promotedNode = this->newNode(mtree);
@@ -1330,7 +1330,7 @@ private:
 				child->addData(data, chosen.distance, mtree);
 				this->updateRadius(child);
 			} catch(CompactnessPromotion& promo) {
-				std::cout << "non leaf node compact!" << std::endl;
+				// std::cout << "non leaf node compact!" << std::endl;
 				// --- 场景 1: 捕获到紧凑性提升 (C1 抛出了 C_n) ---
 				Node* promotedChildNode = promo.promotedNode; // 这就是 C_n
 				// "判断 B1到 C_n的距离会不会导致B1 的半径扩大太大"

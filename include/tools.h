@@ -89,3 +89,6 @@ bool write_fm_index_cache(const seqan::Index<seqan::Dna5String, seqan::FMIndex<>
 
 // 读取缓存的函数
 bool load_fm_index_cache(seqan::Index<seqan::Dna5String, seqan::FMIndex<>>& fm_index, size_t ref_len);
+
+// 辅助函数：将逗号分隔的字符串解析为整数列表
+std::vector<int> parseIntList(const std::string& str);

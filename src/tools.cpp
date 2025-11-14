@@ -57,7 +57,7 @@ std::vector<int> find_all_occurrences_approx(
     for (int i = 0; i <= rlen - qlen; i++) {
         std::string window = ref.substr(i, qlen);
         int d = levenshtein(query, window);
-        if (d <= max_dist) {
+        if (d <= max_dist / 2) {
             positions.push_back(i);
         }
     }
@@ -138,7 +138,7 @@ std::tuple<vector<int>, size_t, std::vector<double>> retrieveCandidates_mtree(
 
     // 3. (可选) 获取节点访问次数
     size_t accesses = result_struct.nodeAccesses;
-    std::cout << "M-Tree search node accesses: " << accesses << std::endl;
+    // std::cout << "M-Tree search node accesses: " << accesses << std::endl;
 
     std::vector<double> radii = std::move(result_struct.leafNodeRadii);
 
@@ -153,7 +153,6 @@ std::vector<int> retrieveCandidates_sae(
     int maxDist,
     int seed_len) 
 {
-    cout << "Getting seed for " << query;
     // 显式使用 seqan::Score 和 seqan::Simple
     seqan::Score<int, seqan::Simple> scoring(1, -1, -1); // match=+1, mismatch=-1, gap=-1
     int xDropThreshold = maxDist * 4; // 经验值
@@ -315,3 +314,27 @@ bool file_exists(const std::string& filename) {
 //         return false;
 //     }
 // }
+
+// 辅助函数：将逗号分隔的字符串解析为整数列表
+std::vector<int> parseIntList(const std::string& str) {
+    std::vector<int> result;
+    std::stringstream ss(str);
+    std::string token;
+    
+    // 使用 std::getline 配合 ',' 作为分隔符
+    while (std::getline(ss, token, ',')) {
+        // 清理空白字符 (可选，但推荐)
+        token.erase(0, token.find_first_not_of(" \t\n\r"));
+        token.erase(token.find_last_not_of(" \t\n\r") + 1);
+        
+        // 尝试转换为 int
+        if (!token.empty()) {
+            try {
+                result.push_back(std::stoi(token));
+            } catch (const std::exception& e) {
+                std::cerr << "Warning: Could not convert token '" << token << "' to integer. Skipping." << std::endl;
+            }
+        }
+    }
+    return result;
+}
