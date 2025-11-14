@@ -3,7 +3,6 @@
 #include "tools.h"
 #include <omp.h>
 
-
 int main(int argc, char* argv[]) {
     // ----- 参数 -----
     string fasta_path = "/home/luting/nfs/luting_data/AnchorBasedMapping/ecoli/fasta/ecoli.fa";
@@ -331,9 +330,16 @@ int main(int argc, char* argv[]) {
 
         dist_counts[i] = count;
 
-        int tp = metrics::countTP(truth_str, cand_str);
-        int fp = metrics::countFP(truth_str, cand_str);
-        int fn = metrics::countFN(truth_str, cand_str);
+        int tp = 0;
+        int fp = 0;
+        int fn = 0;
+
+        // 调用统一函数进行计算
+        // 传入 truth_str, cand_str, 容错参数, 以及要填充的 tp, fp, fn 变量
+        metrics::calculate_position_metrics(truth_str, cand_str, maxDist, tp, fp, fn);
+        // int tp = metrics::countTP(truth_str, cand_str);
+        // int fp = metrics::countFP(truth_str, cand_str);
+        // int fn = metrics::countFN(truth_str, cand_str);
         auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_str, ref);
 
         sumTP += tp;

@@ -387,6 +387,32 @@ public:
 							// --- 2. 第二次剪枝检查 (基于最小距离) ---
 							if(childMinDistance <= _query->range) {
 								LeafNode* leafnode = dynamic_cast<LeafNode*>(child);
+								// if (leafnode != NULL) {
+								// 	_query->nodeAccess++; // 计数 LeafNode 的 node access
+								// 	_query->accessedLeafNodeRadii.push_back(leafnode->radius);
+
+								// 	// 遍历该 LeafNode 的所有子 Entry，将它们全部推入 nearestQueue
+								// 	for (typename LeafNode::ChildrenMap::const_iterator j = leafnode->children.begin(); j != leafnode->children.end(); ++j) {
+								// 		// LeafNode 的子节点都是 Entry。
+								// 		Entry* entry_child = (Entry*)j->second; // 假设 Entry* 获取方式
+								// 		// 这里的距离使用 LeafNode 的父节点距离或不计算，因为目标是返回所有 Entry
+								// 		// 为了保持 result_item 的结构完整，我们暂时使用叶节点中心距离作为 Entry 距离
+								// 		double entryDistance = childDistance; 
+										
+								// 		#pragma omp critical (GlobalLoggerLock)
+								// 		globalLogger.accessCandidate("candidate"); // 计数 Entry
+
+								// 		// 将 Entry 推入 nearestQueue。这里不需要进行距离检查
+								// 		nearestQueue.push({entry_child, entryDistance, 0.0});
+								// 	}
+								// } else {
+								// 	// 如果不是叶子节点，它必须是一个内部 Node
+								// 	Node* internalNode = dynamic_cast<Node*>(child);
+								// 	assert(internalNode != NULL);
+									
+								// 	// 将内部节点推入 pendingQueue，以便稍后展开
+								// 	pendingQueue.push({internalNode, childDistance, childMinDistance});
+								// }
 								if(leafnode != NULL) {
 									//叶子节点
 									_query->nodeAccess++; // 计数叶子节点的 node access
