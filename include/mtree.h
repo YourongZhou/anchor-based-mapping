@@ -378,65 +378,142 @@ public:
 
 					const Node* node = pending.item;
 
-					for(typename Node::ChildrenMap::const_iterator i = node->children.begin(); i != node->children.end(); ++i) {
-						IndexItem* child = i->second;
-						// --- 1. 第一次剪枝检查 (基于父节点到子节点距离) ---
-						if(std::abs(pending.distance - child->distanceToParent) - child->radius <= _query->range) {
-							double childDistance = _query->_mtree->distance_function(_query->data, child->data);
-							double childMinDistance = std::max(childDistance - child->radius, 0.0);
-							// --- 2. 第二次剪枝检查 (基于最小距离) ---
-							if(childMinDistance <= _query->range) {
-								LeafNode* leafnode = dynamic_cast<LeafNode*>(child);
-								// if (leafnode != NULL) {
-								// 	_query->nodeAccess++; // 计数 LeafNode 的 node access
-								// 	_query->accessedLeafNodeRadii.push_back(leafnode->radius);
+					// 遍历父节点的子节点（可能是 LeafNode 或 InternalNode）
+                    for(auto i = node->children.begin(); i != node->children.end(); ++i) {
+                        
+                        // 1. 获取子节点指针
+                        // 假设 ChildrenMap 是 <Data, std::shared_ptr<IndexItem>>
+                        IndexItem* child = i->second; 
 
-								// 	// 遍历该 LeafNode 的所有子 Entry，将它们全部推入 nearestQueue
-								// 	for (typename LeafNode::ChildrenMap::const_iterator j = leafnode->children.begin(); j != leafnode->children.end(); ++j) {
-								// 		// LeafNode 的子节点都是 Entry。
-								// 		Entry* entry_child = (Entry*)j->second; // 假设 Entry* 获取方式
-								// 		// 这里的距离使用 LeafNode 的父节点距离或不计算，因为目标是返回所有 Entry
-								// 		// 为了保持 result_item 的结构完整，我们暂时使用叶节点中心距离作为 Entry 距离
-								// 		double entryDistance = childDistance; 
+                        // 2. 第一次剪枝检查 (基于父节点)
+                        if(std::abs(pending.distance - child->distanceToParent) - child->radius <= _query->range) {
+                            
+                            // 3. 计算昂贵的距离 (只对 Node/LeafNode 计算)
+                            double childDistance = _query->_mtree->distance_function(_query->data, child->data);
+                            double childMinDistance = std::max(childDistance - child->radius, 0.0);
+                            
+                            // 4. 第二次剪枝检查 (基于子节点)
+                            if(childMinDistance <= _query->range) {
+                                
+                                LeafNode* leafnode = dynamic_cast<LeafNode*>(child);
+                                
+                                if(leafnode != NULL) {
+                                    // 找到了一个相关的 LeafNode (L)
+                                    _query->nodeAccess++; 
+                                    _query->accessedLeafNodeRadii.push_back(leafnode->radius);
+
+                                    // d(Anchor, Query) (即 d(P_L, Q))
+                                    double d_anchor_query = childDistance;
+
+                                    // 遍历 L 内部的所有 Entry (E_i)
+                                    for (auto j = leafnode->children.begin(); j != leafnode->children.end(); ++j) {
+                                        
+                                        Entry* entry_child = dynamic_cast<Entry*>(j->second);
+                                        if (!entry_child) continue;
+
+										// #pragma omp critical (GlobalLoggerLock)
+										// globalLogger.accessCandidate("candidate"); // 统计 *可能* 的 candidate
+
+                                        // --- 5. 阶段一：廉价的 "Multilateration" 过滤 ---
+                                        
+                                        // d(Anchor, Candidate) (即 d(P_L, E_i))
+                                        double d_anchor_candidate = entry_child->distanceToParent;
+
+                                        // 应用三角不等式过滤： |d(Q,P_L) - d(E_i,P_L)| <= range
+                                        if (std::abs(d_anchor_query - d_anchor_candidate) <= _query->range) {
+                                            
+                                            // --- 6. 阶段二：昂贵的 "精细过滤" (Final Check) ---
+                                            // 只有通过了廉价过滤的 Entry 才计算真实距离
+                                            
+                                            // #pragma omp critical (GlobalLoggerLock)
+                                            // globalLogger.accessCandidate("candidate"); // 统计 *可能* 的 candidate
+
+                                            double final_distance = _query->_mtree->distance_function(_query->data, entry_child->data);
+
+                                            if (final_distance <= _query->range) {
+                                                // 确认是真实匹配
+
+												#pragma omp critical (GlobalLoggerLock)
+												globalLogger.accessCandidate("candidate"); // 统计 *可能* 的 candidate
+                                                nearestQueue.push({entry_child, final_distance, final_distance});
+                                            }
+                                        }
+                                    } // 结束 Entry 循环
+                                } else {
+                                    // 这是一个 InternalNode，将其推入队列继续遍历
+                                    Node* internalNode = dynamic_cast<Node*>(child);
+                                    assert(internalNode != NULL);
+                                    pendingQueue.push({internalNode, childDistance, childMinDistance});
+                                }
+                            }
+                        }
+                    } // 结束 children 循环
+
+                    if(pendingQueue.empty()) {
+                        nextPendingMinDistance = std::numeric_limits<double>::infinity();
+                    } else {
+                        nextPendingMinDistance = pendingQueue.top().minDistance;
+                    }
+
+					// for(typename Node::ChildrenMap::const_iterator i = node->children.begin(); i != node->children.end(); ++i) {
+					// 	IndexItem* child = i->second;
+					// 	// --- 1. 第一次剪枝检查 (基于父节点到子节点距离) ---
+					// 	if(std::abs(pending.distance - child->distanceToParent) - child->radius <= _query->range) {
+					// 		double childDistance = _query->_mtree->distance_function(_query->data, child->data);
+					// 		double childMinDistance = std::max(childDistance - child->radius, 0.0);
+					// 		// --- 2. 第二次剪枝检查 (基于最小距离) ---
+					// 		if(childMinDistance <= _query->range) {
+					// 			LeafNode* leafnode = dynamic_cast<LeafNode*>(child);
+					// 			// if (leafnode != NULL) {
+					// 			// 	_query->nodeAccess++; // 计数 LeafNode 的 node access
+					// 			// 	_query->accessedLeafNodeRadii.push_back(leafnode->radius);
+
+					// 			// 	// 遍历该 LeafNode 的所有子 Entry，将它们全部推入 nearestQueue
+					// 			// 	for (typename LeafNode::ChildrenMap::const_iterator j = leafnode->children.begin(); j != leafnode->children.end(); ++j) {
+					// 			// 		// LeafNode 的子节点都是 Entry。
+					// 			// 		Entry* entry_child = (Entry*)j->second; // 假设 Entry* 获取方式
+					// 			// 		// 这里的距离使用 LeafNode 的父节点距离或不计算，因为目标是返回所有 Entry
+					// 			// 		// 为了保持 result_item 的结构完整，我们暂时使用叶节点中心距离作为 Entry 距离
+					// 			// 		double entryDistance = childDistance; 
 										
-								// 		#pragma omp critical (GlobalLoggerLock)
-								// 		globalLogger.accessCandidate("candidate"); // 计数 Entry
+					// 			// 		#pragma omp critical (GlobalLoggerLock)
+					// 			// 		globalLogger.accessCandidate("candidate"); // 计数 Entry
 
-								// 		// 将 Entry 推入 nearestQueue。这里不需要进行距离检查
-								// 		nearestQueue.push({entry_child, entryDistance, 0.0});
-								// 	}
-								// } else {
-								// 	// 如果不是叶子节点，它必须是一个内部 Node
-								// 	Node* internalNode = dynamic_cast<Node*>(child);
-								// 	assert(internalNode != NULL);
+					// 			// 		// 将 Entry 推入 nearestQueue。这里不需要进行距离检查
+					// 			// 		nearestQueue.push({entry_child, entryDistance, 0.0});
+					// 			// 	}
+					// 			// } else {
+					// 			// 	// 如果不是叶子节点，它必须是一个内部 Node
+					// 			// 	Node* internalNode = dynamic_cast<Node*>(child);
+					// 			// 	assert(internalNode != NULL);
 									
-								// 	// 将内部节点推入 pendingQueue，以便稍后展开
-								// 	pendingQueue.push({internalNode, childDistance, childMinDistance});
-								// }
-								if(leafnode != NULL) {
-									//叶子节点
-									_query->nodeAccess++; // 计数叶子节点的 node access
-									_query->accessedLeafNodeRadii.push_back(leafnode->radius);
-								}
-								Entry* entry = dynamic_cast<Entry*>(child);
-								if(entry != NULL) { // 数据节点
-									#pragma omp critical (GlobalLoggerLock)
-									globalLogger.accessCandidate("candidate"); // 计数 Entry
-									nearestQueue.push({entry, childDistance, childMinDistance});
-								} else {
-									Node* node = dynamic_cast<Node*>(child);
-									assert(node != NULL);
-									pendingQueue.push({node, childDistance, childMinDistance});
-								}
-							}
-						}
-					}
+					// 			// 	// 将内部节点推入 pendingQueue，以便稍后展开
+					// 			// 	pendingQueue.push({internalNode, childDistance, childMinDistance});
+					// 			// }
+					// 			if(leafnode != NULL) {
+					// 				//叶子节点
+					// 				_query->nodeAccess++; // 计数叶子节点的 node access
+					// 				_query->accessedLeafNodeRadii.push_back(leafnode->radius);
+					// 			}
+					// 			Entry* entry = dynamic_cast<Entry*>(child);
+					// 			if(entry != NULL) { // 数据节点
+					// 				#pragma omp critical (GlobalLoggerLock)
+					// 				globalLogger.accessCandidate("candidate"); // 计数 Entry
+					// 				nearestQueue.push({entry, childDistance, childMinDistance});
+					// 			} else {
+					// 				Node* node = dynamic_cast<Node*>(child);
+					// 				assert(node != NULL);
+					// 				pendingQueue.push({node, childDistance, childMinDistance});
+					// 			}
+					// 		}
+					// 	}
+					// }
 
-					if(pendingQueue.empty()) {
-						nextPendingMinDistance = std::numeric_limits<double>::infinity();
-					} else {
-						nextPendingMinDistance = pendingQueue.top().minDistance;
-					}
+					// if(pendingQueue.empty()) {
+					// 	nextPendingMinDistance = std::numeric_limits<double>::infinity();
+					// } else {
+					// 	nextPendingMinDistance = pendingQueue.top().minDistance;
+					// }
 
 				}
 
