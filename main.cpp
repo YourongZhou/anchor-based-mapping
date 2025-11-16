@@ -11,7 +11,7 @@ int main(int argc, char* argv[]) {
     size_t anchor_len = 20;             // anchor 长度
     int num_anchors = 100;              // anchor 个数
     int num_queries = 100;              // query 数量
-    int maxDist = 3;                    // 容差距离
+    std::vector<int> maxDist_list = {3};// 容差距离
     bool use_all = true; // 是否选择全部 anchor
     double start_idx = 0.0;  // 起始比例
     double end_idx   = 0.2;  // 结束比例
@@ -43,7 +43,8 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--num_queries" && i + 1 < argc) {
             num_queries = stoi(argv[++i]);
         } else if (arg == "--maxDist" && i + 1 < argc) {
-            maxDist = stoi(argv[++i]);
+            std::string list_str = argv[++i];
+            maxDist_list = parseIntList(list_str);
         } else if (arg == "--use_all" && i + 1 < argc) {
             string val = argv[++i];
             if (val == "true" || val == "1") {
@@ -117,26 +118,59 @@ int main(int argc, char* argv[]) {
     }
     size_t query_len = anchor_len;      // query 长度
 
-    // ----- 打印参数确认 -----
-    cout << "fasta_path: " << fasta_path << "\n";
-    cout << "truncate_ref_len: " << truncate_ref_len << "\n";
-    cout << "anchor_len: " << anchor_len << "\n";
-    cout << "num_anchors: " << num_anchors << "\n";
-    cout << "num_queries: " << num_queries << "\n";
-    cout << "maxDist: " << maxDist << "\n";
-    cout << "use_all: " << (use_all ? "true" : "false") << "\n";
-    cout << "start_idx: " << start_idx << "\n";
-    cout << "end_idx: " << end_idx << "\n";
-    cout << "last_random: " << last_random << "\n";
-    cout << "anchor radius: " << anchor_radius << "\n"; 
-    cout << "seed: " << seed << "\n"; 
+        // ----- 打印参数确认 -----
+    // Paths
+    cout << "--- Paths ---\n";
+    cout << "fasta_path: " << fasta_path << (fasta_path == "/home/luting/nfs/luting_data/AnchorBasedMapping/ecoli/fasta/ecoli.fa" ? " (default)" : "") << "\n";
+    cout << "fastq_path: " << fastq_path << (fastq_path == "/home/luting/nfs/luting_data/AnchorBasedMapping/ecoli/fastq/ERR15404863_1.fastq" ? " (default)" : "") << "\n";
+    // Reference truncation
+    cout << "truncate_ref_len: " << truncate_ref_len << (truncate_ref_len == 10000 ? " (default)" : "") << "\n";
+
+    // Anchor settings
+    cout << "--- Anchor Settings ---\n";
+    cout << "anchor_len: " << anchor_len << (anchor_len == 20 ? " (default)" : "") << "\n";
+    cout << "num_anchors: " << num_anchors << (num_anchors == 100 ? " (default)" : "") << "\n";
+    cout << "use_all: " << (use_all ? "true" : "false") << (use_all == true ? " (default)" : "") << "\n";
+    cout << "start_idx: " << start_idx << (start_idx == 0.0 ? " (default)" : "") << "\n";
+    cout << "end_idx: " << end_idx << (end_idx == 0.2 ? " (default)" : "") << "\n";
+    cout << "last_random: " << (last_random ? "true" : "false") << (last_random == false ? " (default)" : "") << "\n";
+    cout << "use_anchor_radius: " << (use_anchor_radius ? "true" : "false") << (use_anchor_radius == false ? " (default)" : "") << "\n";
+    cout << "anchor_radius: " << anchor_radius << (anchor_radius == 3 ? " (default)" : "") << "\n";
+    cout << "seed: " << seed << (seed == 42u ? " (default)" : "") << "\n";
+
+    // Query settings
+    cout << "--- Query Settings ---\n";
+    cout << "num_queries: " << num_queries << (num_queries == 100 ? " (default)" : "") << "\n";
+    cout << "query_len: " << query_len << (query_len == 20 ? " (default)" : "") << "\n";
+    cout << "maxDist_list: [";
+    bool first = true;
+    for (int val : maxDist_list) {
+        if (!first) std::cout << ", ";
+        std::cout << val;
+        first = false;
+    }
+    cout << "] ";
+    if (maxDist_list.size() == 1 && maxDist_list[0] == 3) {
+        std::cout << "(default)";
+    }
+    cout << "\n";
+
+    // Method and index
+    cout << "--- Method Settings ---\n";
+    cout << "method: " << method << (method == "mtree" ? " (default)" : "") << "\n";
+    cout << "seed_len: " << seed_len << (seed_len == 10 ? " (default)" : "") << "\n";
+    cout << "index_dir: " << index_dir << (index_dir == "./index_cache" ? " (default)" : "") << "\n";
+    cout << "force_rebuild: " << (force_rebuild ? "true" : "false") << (force_rebuild == false ? " (default)" : "") << "\n";
+
+    // ----- M-Tree Config -----
     cout << "--- M-Tree Config ---\n";
-    cout << "min_node_capacity: " << min_node_capacity << "\n";
-    cout << "max_node_capacity: " << max_node_capacity << "\n";
-    cout << "leaf_radius_threshold: " << leaf_radius_threshold << "\n";
-    cout << "compactness_min_capacity: " << compactness_min_capacity << "\n";
-    cout << "compactness_radius_factor: " << compactness_radius_factor << "\n";
-    cout << "auto generate queries: " << auto_gen << "\n";
+    cout << "min_node_capacity: " << min_node_capacity << (min_node_capacity == 50 ? " (default)" : "") << "\n";
+    cout << "max_node_capacity: " << max_node_capacity << (max_node_capacity == -1 ? " (default)" : "") << "\n";
+    cout << "leaf_radius_threshold: " << leaf_radius_threshold << (leaf_radius_threshold == 0.0 ? " (default)" : "") << "\n";
+    cout << "compactness_min_capacity: " << compactness_min_capacity << (compactness_min_capacity == 25 ? " (default)" : "") << "\n";
+    cout << "compactness_radius_factor: " << compactness_radius_factor << (compactness_radius_factor == 1.1 ? " (default)" : "") << "\n";
+    cout << "split_strategy_name: " << split_strategy_name << (split_strategy_name == "mtree" ? " (default)" : "") << "\n";
+    cout << "auto generate queries: " << (auto_gen ? "true" : "false") << (auto_gen == false ? " (default)" : "") << "\n";
     rng.seed(seed);
     time_t time_start, time_read, time_tree, time_overlap, time_truth, time_query;
     time_start = time(NULL);
@@ -156,7 +190,7 @@ int main(int argc, char* argv[]) {
     cout << "Using reference (truncated) length = " << ref.size() << "\n";
     time_read = time(NULL);
 
-    // ----- 生成 m-tree -----
+    // ----- 定义 m-tree -----
     MTree mtree(
         min_node_capacity,          // min node capacity
         max_node_capacity,          // max node capacity
@@ -206,67 +240,7 @@ int main(int argc, char* argv[]) {
         anchor_index = build_anchor_index(anchors, ref, anchor_len);
     }
 
-    // ----- 生成 queries -----
-    vector<string> queries;
-    if (auto_gen){
-        queries = simulate_queries(ref, num_queries, query_len);
-        cout << "Simulated " << num_queries << " queries\n";
-    } else {
-        try {
-                vector<FastqRecord> fastq_records = read_fastq_seqan(fastq_path);
-                
-                int count = 0;
-                for (const auto& record : fastq_records) {
-                    if (count++ >= num_queries){
-                        break;
-                    }
-                    queries.push_back(record.seq.substr(0, query_len));
-                }
-                cout << "Read " << queries.size() << " queries from FASTQ file: " << fastq_path << "\n";
-            } catch (const runtime_error& e) {
-                cerr << "Error reading FASTQ: " << e.what() << "\n";
-            }
-    }
 
-    // // 只保留周围某个距离内有 anchor 的 query
-    // queries = filter_queries_by_anchor_index(queries, anchor_index, 3);
-    // num_queries = queries.size();
-
-    // ----- ground truth -----
-    cout << "Generating ground truths:\n";
-    cout << "Number of queries: " << num_queries << endl;
-    vector<vector<int>> truth_positions(num_queries); // 预先分配大小
-
-    // 2. 并行化 Ground Truth 循环
-    #pragma omp parallel for default(none) shared(queries, ref, maxDist, truth_positions, num_queries)
-    for (size_t i = 0; i < num_queries; ++i) {
-        truth_positions[i] = find_all_occurrences_approx(queries[i], ref, maxDist);
-    }
-
-    vector<string> filtered_queries;
-    vector<vector<int>> filtered_truth_positions;
-    size_t new_num_queries = 0;
-
-    for (size_t i = 0; i < num_queries; ++i) {
-        if (!truth_positions[i].empty()) {
-            filtered_queries.push_back(queries[i]);
-            filtered_truth_positions.push_back(truth_positions[i]);
-            new_num_queries++;
-        }
-    }
-
-    // 替换原始数据
-    if (new_num_queries < num_queries) {
-        std::cout << "\n[FILTER] Removed " << (num_queries - new_num_queries) 
-                  << " queries with no ground truth (maxDist=" << maxDist << ").\n";
-        queries = std::move(filtered_queries);
-        truth_positions = std::move(filtered_truth_positions);
-        num_queries = new_num_queries;
-    } else {
-        std::cout << "\n[FILTER] All " << num_queries << " queries have ground truth.\n";
-    }
-    time_truth = time(NULL);
-    
     seqan::Index<seqan::Dna5String, seqan::FMIndex<>> fm_index;
     seqan::Dna5String ref_seq;
     if (method == "sae"){
@@ -283,134 +257,210 @@ int main(int argc, char* argv[]) {
             return 1; // 或者采取其他错误处理措施
         }
     }
+    
+    int ori_num_queries = num_queries;
 
-    // ----- 查询 + 评估 -----
-    // 用于累加每条 query 的 recall / precision
-    int sumTP = 0;
-    int sumFP = 0;
-    int sumFN = 0;
-    double sumRecall = 0.0;
-    double sumPrecision = 0.0;
-    double sum_fp_over_tp = 0.0;
-    double sum_avg_dist = 0.0;
-    double sum_max_dist = 0.0;
-    vector<size_t> dist_counts(num_queries);
-    vector<size_t> all_node_accesses(num_queries);
-    vector<vector<double>> all_radii_vecs(num_queries);
+    for (int maxDist: maxDist_list) {
+        // 输出参数
+        cout << "---------------------" << "\n";
+        std::cout << "--- START_BATCH_RUN ---" << "\n";
+        cout << "---------------------" << "\n";
+        std::cout << "query_maxDist: " << maxDist << "\n";
 
-    #pragma omp parallel for default(none) \
-        shared(queries, truth_positions, mtree, maxDist, fm_index, ref_seq, seed_len, anchor_index, anchors, use_all, start_idx, end_idx, last_random, anchor_radius, ref, method, dist_counts, all_node_accesses, all_radii_vecs, std::cout, num_queries) \
-        reduction(+:sumTP, sumFP, sumFN, sum_avg_dist, sum_max_dist)
-    for (size_t i = 0; i < num_queries; ++i) {
-        const auto &q = queries[i];
-        const auto &truth_pos = truth_positions[i];
-        
-        // === metrics ===
-        size_t count = 0;  // 保存 dist_list.size()
-        const auto &truth_str = posVecToStrVec(truth_positions[i]);
-        vector<string> cand_str;
-        
-        // --- 临时变量，用于存储此线程的结果 ---
-        size_t node_access_local = 0;
-        std::vector<double> radii_vec_local;
-        
-        if (method == "mtree"){
-            auto [pos, access, radii_vec] = retrieveCandidates_mtree(mtree, queries[i], maxDist);
-            cand_str = posVecToStrVec(pos);
-            
-            // 缓存结果，而不是直接打印
-            node_access_local = access;
-            radii_vec_local = std::move(radii_vec);
+        // ----- 生成 queries -----
+        num_queries = ori_num_queries;
+        vector<string> queries;
+        if (auto_gen){
+            queries = simulate_queries(ref, num_queries, query_len);
+            cout << "Simulated " << num_queries << " queries\n";
+        } else {
+            try {
+                    vector<FastqRecord> fastq_records = read_fastq_seqan(fastq_path);
+                    
+                    int count = 0;
+                    for (const auto& record : fastq_records) {
+                        if (count++ >= num_queries){
+                            break;
+                        }
+                        queries.push_back(record.seq.substr(0, query_len));
+                    }
+                    cout << "Read " << queries.size() << " queries from FASTQ file: " << fastq_path << "\n";
+                } catch (const runtime_error& e) {
+                    cerr << "Error reading FASTQ: " << e.what() << "\n";
+                }
+        }
 
-        } else if (method == "sae"){
-            cand_str = posVecToStrVec(retrieveCandidates_sae(fm_index, ref_seq, queries[i], maxDist, seed_len));
-        } else{
-            cand_str = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random, anchor_radius = anchor_radius, &count));
-        };
+        // // 只保留周围某个距离内有 anchor 的 query
+        // queries = filter_queries_by_anchor_index(queries, anchor_index, 3);
+        // num_queries = queries.size();
 
-        dist_counts[i] = count;
+        // ----- ground truth -----
+        cout << "Generating ground truths:\n";
+        cout << "Number of queries: " << num_queries << endl;
+        vector<vector<int>> truth_positions(num_queries); // 预先分配大小
 
-        int tp = 0;
-        int fp = 0;
-        int fn = 0;
+        // 2. 并行化 Ground Truth 循环
+        #pragma omp parallel for default(none) shared(queries, ref, maxDist, truth_positions, num_queries)
+        for (size_t i = 0; i < num_queries; ++i) {
+            truth_positions[i] = find_all_occurrences_approx(queries[i], ref, maxDist);
+        }
 
-        // 调用统一函数进行计算
-        // 传入 truth_str, cand_str, 容错参数, 以及要填充的 tp, fp, fn 变量
-        metrics::calculate_position_metrics(truth_str, cand_str, maxDist, tp, fp, fn);
-        // int tp = metrics::countTP(truth_str, cand_str);
-        // int fp = metrics::countFP(truth_str, cand_str);
-        // int fn = metrics::countFN(truth_str, cand_str);
-        auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_str, ref);
+        vector<string> filtered_queries;
+        vector<vector<int>> filtered_truth_positions;
+        size_t new_num_queries = 0;
 
-        sumTP += tp;
-        sumFP += fp;
-        sumFN += fn;
-        sum_avg_dist += avg_dist;
-        sum_max_dist += max_dist;
-
-        // 将缓存的结果安全地存入主向量
-        //    由于 i 是唯一的，这不需要锁
-        all_node_accesses[i] = node_access_local;
-        all_radii_vecs[i] = std::move(radii_vec_local);
-    }
-    time_query = time(NULL);
-
-    // 5. 现在，在循环之后，安全地打印所有缓存的输出
-    cout << "\n--- Begin Buffered Output ---\n";
-    for (size_t i = 0; i < num_queries; ++i) {
-        if (method == "mtree") {
-            std::cout << "M-Tree search node accesses: " << all_node_accesses[i] << std::endl;
-            for(double r : all_radii_vecs[i]) {
-                std::cout << "LeafNode Radius: " << r << std::endl;
+        for (size_t i = 0; i < num_queries; ++i) {
+            if (!truth_positions[i].empty()) {
+                filtered_queries.push_back(queries[i]);
+                filtered_truth_positions.push_back(truth_positions[i]);
+                new_num_queries++;
             }
         }
+
+        // 替换原始数据
+        if (new_num_queries < num_queries) {
+            std::cout << "\n[FILTER] Removed " << (num_queries - new_num_queries) 
+                    << " queries with no ground truth (maxDist=" << maxDist << ").\n";
+            queries = std::move(filtered_queries);
+            truth_positions = std::move(filtered_truth_positions);
+            num_queries = new_num_queries;
+        } else {
+            std::cout << "\n[FILTER] All " << num_queries << " queries have ground truth.\n";
+        }
+        time_truth = time(NULL);
+        
+        // ----- 查询 + 评估 -----
+        // 用于累加每条 query 的 recall / precision
+        int sumTP = 0;
+        int sumFP = 0;
+        int sumFN = 0;
+        double sumRecall = 0.0;
+        double sumPrecision = 0.0;
+        double sum_fp_over_tp = 0.0;
+        double sum_avg_dist = 0.0;
+        double sum_max_dist = 0.0;
+        vector<size_t> dist_counts(num_queries);
+        vector<size_t> all_node_accesses(num_queries);
+        vector<vector<double>> all_radii_vecs(num_queries);
+
+        #pragma omp parallel for default(none) \
+            shared(queries, truth_positions, mtree, maxDist, fm_index, ref_seq, seed_len, anchor_index, anchors, use_all, start_idx, end_idx, last_random, anchor_radius, ref, method, dist_counts, all_node_accesses, all_radii_vecs, std::cout, num_queries) \
+            reduction(+:sumTP, sumFP, sumFN, sum_avg_dist, sum_max_dist)
+        for (size_t i = 0; i < num_queries; ++i) {
+            const auto &q = queries[i];
+            const auto &truth_pos = truth_positions[i];
+            
+            // === metrics ===
+            size_t count = 0;  // 保存 dist_list.size()
+            const auto &truth_str = posVecToStrVec(truth_positions[i]);
+            vector<string> cand_str;
+            
+            // --- 临时变量，用于存储此线程的结果 ---
+            size_t node_access_local = 0;
+            std::vector<double> radii_vec_local;
+            
+            if (method == "mtree"){
+                auto [pos, access, radii_vec] = retrieveCandidates_mtree(mtree, queries[i], maxDist);
+                cand_str = posVecToStrVec(pos);
+                
+                // 缓存结果，而不是直接打印
+                node_access_local = access;
+                radii_vec_local = std::move(radii_vec);
+
+            } else if (method == "sae"){
+                cand_str = posVecToStrVec(retrieveCandidates_sae(fm_index, ref_seq, queries[i], maxDist, seed_len));
+            } else{
+                cand_str = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random, anchor_radius = anchor_radius, &count));
+            };
+
+            dist_counts[i] = count;
+
+            int tp = 0;
+            int fp = 0;
+            int fn = 0;
+
+            // 调用统一函数进行计算
+            // 传入 truth_str, cand_str, 容错参数, 以及要填充的 tp, fp, fn 变量
+            metrics::calculate_position_metrics(truth_str, cand_str, maxDist, tp, fp, fn);
+            // int tp = metrics::countTP(truth_str, cand_str);
+            // int fp = metrics::countFP(truth_str, cand_str);
+            // int fn = metrics::countFN(truth_str, cand_str);
+            auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_str, ref);
+
+            sumTP += tp;
+            sumFP += fp;
+            sumFN += fn;
+            sum_avg_dist += avg_dist;
+            sum_max_dist += max_dist;
+
+            // 将缓存的结果安全地存入主向量
+            //    由于 i 是唯一的，这不需要锁
+            all_node_accesses[i] = node_access_local;
+            all_radii_vecs[i] = std::move(radii_vec_local);
+        }
+        time_query = time(NULL);
+
+        // 5. 现在，在循环之后，安全地打印所有缓存的输出
+        if (method == "mtree") {
+            std::cout << "\n--- Begin Buffered Output ---\n";
+            for (size_t i = 0; i < num_queries; ++i) {
+                std::cout << "M-Tree search node accesses: " << all_node_accesses[i] << std::endl;
+                for(double r : all_radii_vecs[i]) {
+                    std::cout << "LeafNode Radius: " << r << std::endl;
+                }
+            }
+            std::cout << "--- End Buffered Output ---\n";
+        }
+        
+        // 保存到文件
+        ofstream ofs("dist_counts_radius_" + to_string(anchor_radius) + ".txt");
+
+        for (auto c : dist_counts) {
+            ofs << c << "\n";
+        }
+        ofs.close();
+
+        // ----- overall -----
+        cout << "\n===== Experiment Parameters =====\n";
+        cout << "Reference length truncated to: " << truncate_ref_len << " bp\n";
+        cout << "Anchor/Query length: " << anchor_len << "\n";
+        cout << "Number of anchors: " << num_anchors << "\n";
+        cout << "Number of queries: " << num_queries << "\n";
+        cout << "Maximum allowed distance: " << maxDist << "\n";
+
+        // 总指标
+        double recall = (sumTP + sumFN > 0) ? double(sumTP) / double(sumTP + sumFN) : 0.0;
+        double precision = (sumTP + sumFP > 0) ? double(sumTP) / double(sumTP + sumFP) : 0.0;
+        double fp_over_tp = (sumTP > 0) ? double(sumFP) / double(sumTP) : 0.0;
+        double avg_avg_dist = sum_avg_dist / num_queries;
+        double avg_max_dist = sum_max_dist / num_queries;
+
+        // 内存访问
+        globalLogger.report();
+
+        cout << "\n===== Average per-query Metrics =====\n";
+        cout << "Average TP: " << (double)sumTP / num_queries << "\n";
+        cout << "Average FP: " << (double)sumFP / num_queries << "\n";
+        cout << "Average FN: " << (double)sumFN / num_queries << "\n";
+        cout << "Average Recall: " << recall << "\n";
+        cout << "Average Precision: " << precision << "\n";
+        cout << "Average FP/TP: " << fp_over_tp << "\n";
+        cout << "Average average distance: " << avg_avg_dist << "\n";
+        cout << "Average maximum distance: " << avg_max_dist << "\n";
+
+        cout << "===== Average time lapse =====";
+        printf("\nRead FASTQA file time:%ld", (time_read-time_start));
+        printf("\nBuild Tree time:%ld", (time_tree-time_read));
+        printf("\nCalculate overlap time:%ld", (time_overlap - time_tree));
+        printf("\nGet ground truth time:%ld", (time_truth - time_overlap));
+        printf("\nQuery time:%ld", (time_query - time_truth));
+
+        cout << "Original sequence length: " << records[0].seq.size() <<endl;
+        cout << "---------------------" << "\n";
+        cout << "--- END_BATCH_RUN ---" << "\n";
+        cout << "---------------------" << "\n";
     }
-    cout << "--- End Buffered Output ---\n";
-    // 保存到文件
-    ofstream ofs("dist_counts_radius_" + to_string(anchor_radius) + ".txt");
-
-    for (auto c : dist_counts) {
-        ofs << c << "\n";
-    }
-    ofs.close();
-
-    // ----- overall -----
-    cout << "\n===== Experiment Parameters =====\n";
-    cout << "Reference length truncated to: " << truncate_ref_len << " bp\n";
-    cout << "Anchor/Query length: " << anchor_len << "\n";
-    cout << "Number of anchors: " << num_anchors << "\n";
-    cout << "Number of queries: " << num_queries << "\n";
-    cout << "Maximum allowed distance: " << maxDist << "\n";
-
-    // 总指标
-    double recall = (sumTP + sumFN > 0) ? double(sumTP) / double(sumTP + sumFN) : 0.0;
-    double precision = (sumTP + sumFP > 0) ? double(sumTP) / double(sumTP + sumFP) : 0.0;
-    double fp_over_tp = (sumTP > 0) ? double(sumFP) / double(sumTP) : 0.0;
-    double avg_avg_dist = sum_avg_dist / num_queries;
-    double avg_max_dist = sum_max_dist / num_queries;
-
-    // 内存访问
-    globalLogger.report();
-
-    cout << "\n===== Average per-query Metrics =====\n";
-    cout << "Average TP: " << (double)sumTP / num_queries << "\n";
-    cout << "Average FP: " << (double)sumFP / num_queries << "\n";
-    cout << "Average FN: " << (double)sumFN / num_queries << "\n";
-    cout << "Average Recall: " << recall << "\n";
-    cout << "Average Precision: " << precision << "\n";
-    cout << "Average FP/TP: " << fp_over_tp << "\n";
-    cout << "Average average distance: " << avg_avg_dist << "\n";
-    cout << "Average maximum distance: " << avg_max_dist << "\n";
-
-    cout << "===== Average time lapse =====";
-    printf("\nRead FASTQA file time:%ld", (time_read-time_start));
-    printf("\nBuild Tree time:%ld", (time_tree-time_read));
-    printf("\nCalculate overlap time:%ld", (time_overlap - time_tree));
-    printf("\nGet ground truth time:%ld", (time_truth - time_overlap));
-    printf("\nQuery time:%ld", (time_query - time_truth));
-
-    cout << "Original sequence length: " << records[0].seq.size() <<endl;
-
+    
 
     return 0;
 }
