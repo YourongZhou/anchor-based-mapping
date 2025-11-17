@@ -7,6 +7,10 @@
 #include <map>
 #include "fasta_utils_seqan.hpp"
 #include "levenshtein.hpp"
+#include "functions.h"
+#include "mtree.h"
+#include "mtree_types.h"
+#include "data_types.h"
 
 #include <seqan/find.h> 
 
@@ -19,9 +23,10 @@
 #include <nlohmann/json.hpp>
 
 // anchor_index: anchor_seq -> vector of (ref_pos, dist_ref)
-std::vector<int> retrieveCandidates_anchor(
+CandidateResults retrieveCandidates_anchor(
     const std::string &query,
     const std::unordered_map<std::string, std::vector<std::pair<int,int>>> &anchor_index,
+    const seqan::Dna5String &ref_seq,
     int k,              // anchor 长度（仅作安全检查）
     int max_dist_query, // 扩展窗口大小（d +/- max_dist_query）
     bool use_all = true, // 是否选择全部 anchor
@@ -29,7 +34,8 @@ std::vector<int> retrieveCandidates_anchor(
     int end_idx   = 20,  // 结束比例
     bool last_random = false,  // 最后一个是否随机选择（当按顺序选择的时候） 
     int anchor_radius = 3,
-    size_t* dist_count = nullptr  // 新增指针参数
+    size_t* dist_count = nullptr,  // 新增指针参数
+    bool require_distance = false
 ) {
     int qlen = (int)query.size();
     if (qlen < k) { 
@@ -154,7 +160,7 @@ std::vector<int> retrieveCandidates_anchor(
             if (intersection.empty()) break;      // 提前退出
         }
     }
-    std::cout << "\nAverage anchor - query distance: " << anchor_query_dist / selected.size() << " " << selected.size();
+    // std::cout << "\nAverage anchor - query distance: " << anchor_query_dist / selected.size() << " " << selected.size();
 
     if (intersection.empty()) return {};
 
@@ -172,12 +178,43 @@ std::vector<int> retrieveCandidates_anchor(
     //     intersection.swap(next);
     // }
 
+    std::vector<int> positions;
+    positions.reserve(intersection.size());
+    for (int pos : intersection) positions.push_back(pos);
+    std::sort(positions.begin(), positions.end());
+    
+    double total_distance = 0.0;
+    const size_t ref_len = seqan::length(ref_seq);
+    
+    for (int pos : positions) {
+        // 检查 pos 是否有效（pos >= 0）以及是否会超出 ref_seq 边界
+        if ((size_t)pos + qlen > ref_len || pos < 0) {
+            // std::cout << "out of bounds" << std::endl;
+            // 如果超出边界，跳过此候选位置
+            continue; 
+        }
+
+        // 1. 使用 SeqAn infix 提取 Reference 子序列
+        seqan::Infix<const seqan::Dna5String>::Type ref_infix = 
+            seqan::infix(ref_seq, pos, pos + qlen); 
+        
+        // 2. 将 SeqAn Infix (Dna5) 转换为 std::string
+        std::string ref_segment;
+        seqan::reserve(ref_segment, seqan::length(ref_infix));
+        for (auto c : ref_infix) {
+            ref_segment += (char)c; // Dna5 to char conversion
+        }
+        int dist = levenshtein(query, ref_segment);
+        std::cout << "query: " << query << ", ref: " << ref_segment << "distance: " << dist << endl;
+        
+        // 3. 累加
+        total_distance += (double)dist;
+    }
+    
+    double average_distance = total_distance / positions.size();
+
     // 转成有序 vector 返回（方便后续处理）
-    std::vector<int> result;
-    result.reserve(intersection.size());
-    for (int pos : intersection) result.push_back(pos);
-    std::sort(result.begin(), result.end());
-    return result;
+    return CandidateResults{positions, average_distance};
 }
 
 // crude JSON map parser expecting {"id":num,...}

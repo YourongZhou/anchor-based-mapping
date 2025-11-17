@@ -261,6 +261,7 @@ int main(int argc, char* argv[]) {
             return 1; // 或者采取其他错误处理措施
         }
     }
+    seqan::assign(ref_seq, ref);
     
     int ori_num_queries = num_queries;
 
@@ -378,7 +379,10 @@ int main(int argc, char* argv[]) {
                 double cand_dist = cand_results.average_distance;
                 cand_dist_list[i] = cand_dist;
             } else{
-                cand_str = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random, anchor_radius = anchor_radius, &count));
+                auto cand_results = retrieveCandidates_anchor(queries[i], anchor_index, ref_seq, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random, anchor_radius = anchor_radius, &count, require_distance);
+                cand_str = posVecToStrVec(cand_results.positions);
+                double cand_dist = cand_results.average_distance;
+                cand_dist_list[i] = cand_dist;
             };
 
             dist_counts[i] = count;
