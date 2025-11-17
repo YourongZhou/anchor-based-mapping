@@ -30,6 +30,7 @@ int main(int argc, char* argv[]) {
     string method = "mtree"; // 方法，mtree, seed-and-extend, 还是 anchor
     std::string index_dir = "./index_cache"; // 默认缓存目录
     bool force_rebuild = false;
+    bool require_distance = false; //是否计算 candidate 距离
 
     // ----- 解析命令行参数 -----
     for (int i = 1; i < argc; ++i) {
@@ -111,6 +112,8 @@ int main(int argc, char* argv[]) {
         index_dir = argv[++i];
         } else if (arg == "--force_rebuild") {
             force_rebuild = true;
+        } else if (arg == "--require_distance") {
+            require_distance = true;
         } else {
             cerr << "Unknown or incomplete argument: " << arg << "\n";
             return 1;
@@ -161,6 +164,7 @@ int main(int argc, char* argv[]) {
     cout << "seed_len: " << seed_len << (seed_len == 10 ? " (default)" : "") << "\n";
     cout << "index_dir: " << index_dir << (index_dir == "./index_cache" ? " (default)" : "") << "\n";
     cout << "force_rebuild: " << (force_rebuild ? "true" : "false") << (force_rebuild == false ? " (default)" : "") << "\n";
+    cout << "require_distance: " << (require_distance ? "true" : "false") << (require_distance == false ? " (default)" : "") << "\n";
 
     // ----- M-Tree Config -----
     cout << "--- M-Tree Config ---\n";
@@ -342,9 +346,10 @@ int main(int argc, char* argv[]) {
         vector<size_t> dist_counts(num_queries);
         vector<size_t> all_node_accesses(num_queries);
         vector<vector<double>> all_radii_vecs(num_queries);
+        vector<double> cand_dist_list(num_queries);
 
         #pragma omp parallel for default(none) \
-            shared(queries, truth_positions, mtree, maxDist, fm_index, ref_seq, seed_len, anchor_index, anchors, use_all, start_idx, end_idx, last_random, anchor_radius, ref, method, dist_counts, all_node_accesses, all_radii_vecs, std::cout, num_queries) \
+            shared(queries, truth_positions, mtree, maxDist, fm_index, ref_seq, seed_len, anchor_index, anchors, use_all, start_idx, end_idx, last_random, anchor_radius, ref, method, dist_counts, all_node_accesses, all_radii_vecs, std::cout, num_queries, require_distance, cand_dist_list) \
             reduction(+:sumTP, sumFP, sumFN, sum_avg_dist, sum_max_dist)
         for (size_t i = 0; i < num_queries; ++i) {
             const auto &q = queries[i];
@@ -368,7 +373,10 @@ int main(int argc, char* argv[]) {
                 radii_vec_local = std::move(radii_vec);
 
             } else if (method == "sae"){
-                cand_str = posVecToStrVec(retrieveCandidates_sae(fm_index, ref_seq, queries[i], maxDist, seed_len));
+                auto cand_results = retrieveCandidates_sae(fm_index, ref_seq, queries[i], maxDist, seed_len, require_distance);
+                cand_str = posVecToStrVec(cand_results.positions);
+                double cand_dist = cand_results.average_distance;
+                cand_dist_list[i] = cand_dist;
             } else{
                 cand_str = posVecToStrVec(retrieveCandidates_anchor(queries[i], anchor_index, anchors[0].seq.size(), maxDist, use_all, start_idx, end_idx, last_random, anchor_radius = anchor_radius, &count));
             };
@@ -447,6 +455,12 @@ int main(int argc, char* argv[]) {
         cout << "Average FP/TP: " << fp_over_tp << "\n";
         cout << "Average average distance: " << avg_avg_dist << "\n";
         cout << "Average maximum distance: " << avg_max_dist << "\n";
+        cout << "\n===== All Individual Candidate Distances =====\n";
+        cout << "DISTANCES_START:"; 
+        for (double dist : cand_dist_list) {
+            cout << " " << dist;
+        }
+        cout << "\nDISTANCES_END\n";
 
         cout << "===== Average time lapse =====";
         printf("\nRead FASTQA file time:%ld", (time_read-time_start));

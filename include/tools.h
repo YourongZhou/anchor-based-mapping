@@ -64,12 +64,13 @@ std::tuple<vector<int>, size_t, std::vector<double>> retrieveCandidates_mtree(
     int maxDist);
 
 
-std::vector<int> retrieveCandidates_sae(
+CandidateResults retrieveCandidates_sae(
     seqan::Index<seqan::Dna5String, seqan::FMIndex<>> &fm_index, // 显式类型
     const seqan::Dna5String &ref_seq, // 显式类型
     const std::string &query,
     int maxDist,
-    int seed_len);
+    int seed_len,
+    bool require_distance);
 
 std::string generate_index_filename(
     const std::string& method,

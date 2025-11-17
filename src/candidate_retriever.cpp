@@ -46,9 +46,9 @@ std::vector<int> retrieveCandidates_anchor(
         if ((int)anchor_seq.size() != k) continue;
         int d = min_edit_distance_window(anchor_seq, query);
 
-        // // ✅ 只保留距离在 anchor_radius 以内的 anchor
+        // ✅ 只保留距离在 anchor_radius 以内的 anchor
         // if (d <= anchor_radius)
-        //     dist_list.emplace_back(anchor_seq, d);
+        dist_list.emplace_back(anchor_seq, d);
     }
 
     if (dist_list.empty()) return {};
@@ -91,9 +91,10 @@ std::vector<int> retrieveCandidates_anchor(
 
     if (dist_count) *dist_count = dist_list.size();  // 保存数量
 
-
     std::vector<std::unordered_set<int>> candidate_sets;
     candidate_sets.reserve(64);
+    std::unordered_set<int> intersection;
+    bool first_set = true;
 
     double anchor_query_dist = 0.0;
     // 对每个 anchor 计算它与 query 的距离 d（最小窗口编辑距离）
@@ -117,35 +118,59 @@ std::vector<int> retrieveCandidates_anchor(
         int high = d + max_dist_query;
 
         // 3) 从 anchor 对应的 ref_list 里筛出 dist_ref 在 [low, high] 的 ref_pos
-        std::unordered_set<int> s;
-        s.reserve(16);
+        std::unordered_set<int> current_set;
+        current_set.reserve(16);
         for (const auto &pr : ref_list) {
             int ref_pos = pr.first;
             int dist_ref = pr.second;
             if (dist_ref >= low && dist_ref <= high) {
-                s.insert(ref_pos);
+                current_set.insert(ref_pos);
             }
         }
 
-        if (!s.empty()) candidate_sets.emplace_back(std::move(s));
+        // if (!current_set.empty()) candidate_sets.emplace_back(std::move(current_set));
+
+        if (current_set.empty()) continue; // 空集跳过
+
+        if (first_set) {
+            // 第一个有效的集合，直接作为交集起点
+            intersection = std::move(current_set);
+            first_set = false;
+        } else {
+            // 后续集合：计算当前 intersection 和 current_set 的交集
+            std::unordered_set<int> next_intersection;
+            next_intersection.reserve(std::min(intersection.size(), current_set.size()));
+            
+            // 确保总是遍历较小的集合以加速
+            const auto& smaller = (intersection.size() < current_set.size()) ? intersection : current_set;
+            const auto& larger  = (intersection.size() < current_set.size()) ? current_set : intersection;
+
+            for (int pos : smaller) {
+                if (larger.count(pos)) {
+                    next_intersection.insert(pos);
+                }
+            }
+            intersection.swap(next_intersection); // 更新交集
+            if (intersection.empty()) break;      // 提前退出
+        }
     }
     std::cout << "\nAverage anchor - query distance: " << anchor_query_dist / selected.size() << " " << selected.size();
 
-    if (candidate_sets.empty()) return {};
+    if (intersection.empty()) return {};
 
-    // 4) 交集 —— 先按集合大小排序，先交小集合以加速
-    std::sort(candidate_sets.begin(), candidate_sets.end(),
-              [](const auto &a, const auto &b){ return a.size() < b.size(); });
+    // // 4) 交集 —— 先按集合大小排序，先交小集合以加速
+    // std::sort(candidate_sets.begin(), candidate_sets.end(),
+    //           [](const auto &a, const auto &b){ return a.size() < b.size(); });
 
-    std::unordered_set<int> intersection = std::move(candidate_sets[0]);
-    for (size_t i = 1; i < candidate_sets.size() && !intersection.empty(); ++i) {
-        std::unordered_set<int> next;
-        next.reserve(std::min(intersection.size(), candidate_sets[i].size()));
-        for (int pos : intersection) {
-            if (candidate_sets[i].count(pos)) next.insert(pos);
-        }
-        intersection.swap(next);
-    }
+    // std::unordered_set<int> intersection = std::move(candidate_sets[0]);
+    // for (size_t i = 1; i < candidate_sets.size() && !intersection.empty(); ++i) {
+    //     std::unordered_set<int> next;
+    //     next.reserve(std::min(intersection.size(), candidate_sets[i].size()));
+    //     for (int pos : intersection) {
+    //         if (candidate_sets[i].count(pos)) next.insert(pos);
+    //     }
+    //     intersection.swap(next);
+    // }
 
     // 转成有序 vector 返回（方便后续处理）
     std::vector<int> result;

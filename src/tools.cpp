@@ -1,5 +1,5 @@
 #include "tools.h"
-
+#include <omp.h>
 
 // 从 reference 随机生成 num_queries 条长度为 query_len 的子串（模拟 reads）
 std::vector<std::string> simulate_queries(const std::string &ref,
@@ -146,80 +146,133 @@ std::tuple<vector<int>, size_t, std::vector<double>> retrieveCandidates_mtree(
 }
 
 
-std::vector<int> retrieveCandidates_sae(
-    seqan::Index<seqan::Dna5String, seqan::FMIndex<>> &fm_index, // 显式类型
-    const seqan::Dna5String &ref_seq, // 显式类型
+CandidateResults retrieveCandidates_sae(
+    seqan::Index<seqan::Dna5String, seqan::FMIndex<>> &fm_index,
+    const seqan::Dna5String &ref_seq,
     const std::string &query,
     int maxDist,
-    int seed_len) 
+    int seed_len,
+    bool require_distance) // 新增的控制 flag
 {
-    // 显式使用 seqan::Score 和 seqan::Simple
-    seqan::Score<int, seqan::Simple> scoring(1, -1, -1); // match=+1, mismatch=-1, gap=-1
-    int xDropThreshold = maxDist * 4; // 经验值
-    // ======================
-
-    std::set<int> unique_positions;
-    std::vector<int> results;
+    // 原始的比对评分 (用于 extendSeed)： match=+1, mismatch=-1, gap=-1
+    seqan::Score<int, seqan::Simple> scoring(1, -1, -1); 
+    int xDropThreshold = maxDist * 4; 
+    
+    // 编辑距离的评分 (用于计算编辑距离，仅在 require_distance=true 时需要)
+    seqan::Score<int, seqan::Simple> edit_scoring(0, -1, -1); 
 
     std::string qseq_str = query;
     std::transform(qseq_str.begin(), qseq_str.end(), qseq_str.begin(), ::toupper);
     
-    // 显式使用 seqan::Dna5String 和 seqan::assign
     seqan::Dna5String qseq;
     seqan::assign(qseq, qseq_str);
 
-    // 显式类型定义
     typedef seqan::Seed<seqan::Simple> TSeed;
-    
-    // 显式使用 seqan::Finder
     seqan::Finder<seqan::Index<seqan::Dna5String, seqan::FMIndex<>>> finder(fm_index);
 
-    // 遍历所有可能的种子
+    // === 核心数据结构 ===
+    std::set<int> unique_positions; 
+    
+    double total_distance = 0.0;
+    int candidate_count = 0;
 
-    // 计算种子数量（根据 maxDist，代表容错能力）
-    //maxDist 越大，种子数量越多；容错能力越强
-    seed_len = qseq_str.size() / maxDist;
+    // 重新计算种子长度
+    if (maxDist > 0) {
+        seed_len = qseq_str.size() / maxDist;
+        if (seed_len == 0) seed_len = 1; 
+    }
+
+    // 遍历所有可能的种子
     for (size_t i = 0; i + seed_len <= qseq_str.size(); i += seed_len) {
-    // for (size_t i = 0; i + seed_len <= qseq_str.size(); i += 3) {
         #pragma omp critical (GlobalLoggerLock)
         {
             globalLogger.accessIndex("seed");
         }
+        
         std::string seed_str = qseq_str.substr(i, seed_len);
-        // cout << "seed: " << seed_str << " ";
         seqan::Dna5String seed;
         seqan::assign(seed, seed_str);
         
         seqan::clear(finder);
         
-        // 显式使用 seqan::find, seqan::position
         while (seqan::find(finder, seed)) {
-            // cout << "found seed!";
             #pragma omp critical (GlobalLoggerLock)
             {
                 globalLogger.accessCandidate("extend");
             }
             size_t seed_ini_pos_on_ref = seqan::position(finder);
             
-            // 显式使用 TSeed 构造函数
             TSeed s(seed_ini_pos_on_ref, i, 
                     seed_ini_pos_on_ref + seed_len - 1, i + seed_len - 1);
             
-            // 显式使用 seqan::extendSeed, seqan::EXTEND_BOTH, seqan::GappedXDrop
             seqan::extendSeed(s, ref_seq, qseq, seqan::EXTEND_BOTH, scoring, xDropThreshold, seqan::GappedXDrop());
 
-            // 显式使用 seqan::beginPositionH
             unsigned sb = seqan::beginPositionH(s);
             
-            // 存储起始位置
-            unique_positions.insert((int)sb); 
+            // 存储起始位置，并检查是否为新候选
+            if (unique_positions.insert((int)sb).second) {
+                
+                // === 条件判断：如果不需要计算距离，则跳过以下昂贵的操作 ===
+                if (require_distance) { 
+                    
+                    // 提取在 Reference 上的匹配子序列 (Candidate)
+                    seqan::Infix<const seqan::Dna5String>::Type ref_infix = 
+                        seqan::infix(ref_seq, seqan::beginPositionH(s), seqan::endPositionH(s));
+                    
+                    // 提取在 Query 上的匹配子序列
+                    seqan::Infix<const seqan::Dna5String>::Type query_infix = 
+                        seqan::infix(qseq, seqan::beginPositionV(s), seqan::endPositionV(s));
+                    
+                    
+                    // --- 关键修改：将 SeqAn Infix<Dna5String> 转换为 std::string ---
+                    
+                    // 1. 转换 ref_infix
+                    std::string ref_str;
+                    // 优化：预先分配内存 (需要 #include <seqan/sequence.h>)
+                    seqan::reserve(ref_str, seqan::length(ref_infix)); 
+                    // 遍历 Infix，将每个 Dna5 碱基转换为 char
+                    for (auto c : ref_infix) {
+                        ref_str += (char)c;
+                    }
+
+                    // 2. 转换 query_infix
+                    std::string query_str;
+                    seqan::reserve(query_str, seqan::length(query_infix));
+                    for (auto c : query_infix) {
+                        query_str += (char)c;
+                    }
+                    // std::cout <<"lengths: "<< qseq_str.size() << ", " << seqan::length(ref_infix) << ", " << seqan::length(query_infix) << std::endl;
+                    
+                    // 3. 调用您的 Levenshtein 函数
+                    int dist = levenshtein(ref_str, query_str);
+                    // -----------------------------------------------------------
+                    
+                    // 累加距离和计数
+                    // std::cout << "distance: " << dist << endl; // (调试输出)
+                    total_distance += (double)dist;
+                    candidate_count++;
+                }
+            }
         }
     }
 
-    results.reserve(unique_positions.size());
-    results.assign(unique_positions.begin(), unique_positions.end());
+    // === 构造并返回结果结构体 ===
     
-    return results;
+    CandidateResults final_results;
+    
+    // a. 处理位置结果 (总是填充)
+    final_results.positions.reserve(unique_positions.size());
+    final_results.positions.assign(unique_positions.begin(), unique_positions.end());
+    
+    // b. 计算平均距离 (仅在需要且有候选者时进行计算)
+    if (require_distance && candidate_count > 0) {
+        final_results.average_distance = total_distance / candidate_count;
+    } else {
+        // 如果 require_distance 为 false，或者没有候选者，则返回 0.0
+        final_results.average_distance = 0.0;
+    }
+    
+    return final_results;
 }
 
 std::string generate_index_filename(

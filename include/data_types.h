@@ -24,4 +24,9 @@ using CachedDistance = functions::cached_distance_function<Data, Distance>;
 using SplitStrategyType = functions::OptimizedKSplitStrategy;
 using MTree = mtree<Data, Distance, SplitStrategyType>;
 
+struct CandidateResults {
+    std::vector<int> positions; // 原函数返回的起始位置
+    double average_distance;    // 平均编辑距离
+};
+
 #endif // DATA_TYPES_H
