@@ -5,6 +5,7 @@ test/csv/*
 !test/csv/comparison_fullTP.csv
 !test/csv/comparison_updatedTP.csv
 !test/csv/comparison_distance1_30.csv
+!test/csv/comparison_distance1_30_sae.csv
 test/*.txt
 test/csv/sweep_results_anchor_full.csv
 test/csv/sweep_results_idx.csv
