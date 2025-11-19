@@ -21,6 +21,7 @@
 #include <random>
 #include <cstdlib>
 #include <nlohmann/json.hpp>
+#include <omp.h>
 
 // anchor_index: anchor_seq -> vector of (ref_pos, dist_ref)
 CandidateResults retrieveCandidates_anchor(
@@ -187,6 +188,10 @@ CandidateResults retrieveCandidates_anchor(
     const size_t ref_len = seqan::length(ref_seq);
     
     for (int pos : positions) {
+        #pragma omp critical (GlobalLoggerLock)
+        {
+            globalLogger.accessCandidate("extend");
+        }
         // 检查 pos 是否有效（pos >= 0）以及是否会超出 ref_seq 边界
         if ((size_t)pos + qlen > ref_len || pos < 0) {
             // std::cout << "out of bounds" << std::endl;
