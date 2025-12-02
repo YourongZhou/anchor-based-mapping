@@ -394,9 +394,9 @@ int main(int argc, char* argv[]) {
             // 调用统一函数进行计算
             // 传入 truth_str, cand_str, 容错参数, 以及要填充的 tp, fp, fn 变量
             metrics::calculate_position_metrics(truth_str, cand_str, maxDist, tp, fp, fn);
-            // int tp = metrics::countTP(truth_str, cand_str);
-            // int fp = metrics::countFP(truth_str, cand_str);
-            // int fn = metrics::countFN(truth_str, cand_str);
+            // tp = metrics::countTP(truth_str, cand_str);
+            // fp = metrics::countFP(truth_str, cand_str);
+            // fn = metrics::countFN(truth_str, cand_str);
             auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_str, ref);
 
             sumTP += tp;
