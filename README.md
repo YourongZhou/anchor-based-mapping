@@ -71,7 +71,6 @@ maxDist_values = [1, 3, 5, 7, 9, 11]
 df_sae = run_batch_experiment('sae', maxDist_values, fixed_seed_len='16')  
 df_mtree = run_batch_experiment('mtree', maxDist_values)  
 df_anchor = run_batch_experiment('anchor', maxDist_values)
-figures_upd.ipynb:121-134
 ```
 
 ## Dependencies
@@ -109,12 +108,12 @@ Average maximum distance: 14.26
 Index accesses:     600  
 Candidate accesses: 1665  
 Total accesses:     2265  
-output_sae.txt:129-142
 
 ## Notes
 The system supports batch execution of multiple parameter values in a single run for efficient testing
 Ground truth generation uses parallel processing for scalability
 All three methods share a common metrics evaluation framework for fair comparison
-The testing framework generates publication-quality visualizations including precision/recall curves, access count charts, and distance distribution plots main.cpp:352-412
-I deeply appreciate your interest.:)
+The testing framework generates publication-quality visualizations including precision/recall curves, access count charts, and distance distribution plots
+
+I deeply appreciate your interest:)
 
