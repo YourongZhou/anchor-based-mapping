@@ -1,0 +1,130 @@
+[
+    {
+        "arguments": [
+            "clang++",
+            "-c",
+            "-std=c++17",
+            "-O3",
+            "-fPIC",
+            "-Iinclude",
+            "-fopenmp",
+            "-o",
+            "src/candidate_retriever.o",
+            "src/candidate_retriever.cpp"
+        ],
+        "directory": "/home/luting/projects/AnchorMapping/anchor-based-mapping",
+        "file": "src/candidate_retriever.cpp"
+    },
+    {
+        "arguments": [
+            "clang++",
+            "-c",
+            "-std=c++17",
+            "-O3",
+            "-fPIC",
+            "-Iinclude",
+            "-fopenmp",
+            "-o",
+            "src/index_query.o",
+            "src/index_query.cpp"
+        ],
+        "directory": "/home/luting/projects/AnchorMapping/anchor-based-mapping",
+        "file": "src/index_query.cpp"
+    },
+    {
+        "arguments": [
+            "clang++",
+            "-c",
+            "-std=c++17",
+            "-O3",
+            "-fPIC",
+            "-Iinclude",
+            "-fopenmp",
+            "-o",
+            "src/metrics.o",
+            "src/metrics.cpp"
+        ],
+        "directory": "/home/luting/projects/AnchorMapping/anchor-based-mapping",
+        "file": "src/metrics.cpp"
+    },
+    {
+        "arguments": [
+            "clang++",
+            "-c",
+            "-std=c++17",
+            "-O3",
+            "-fPIC",
+            "-Iinclude",
+            "-fopenmp",
+            "-o",
+            "src/anchor_gen.o",
+            "src/anchor_gen.cpp"
+        ],
+        "directory": "/home/luting/projects/AnchorMapping/anchor-based-mapping",
+        "file": "src/anchor_gen.cpp"
+    },
+    {
+        "arguments": [
+            "clang++",
+            "-c",
+            "-std=c++17",
+            "-O3",
+            "-fPIC",
+            "-Iinclude",
+            "-fopenmp",
+            "-o",
+            "main.o",
+            "main.cpp"
+        ],
+        "directory": "/home/luting/projects/AnchorMapping/anchor-based-mapping",
+        "file": "main.cpp"
+    },
+    {
+        "arguments": [
+            "clang++",
+            "-c",
+            "-std=c++17",
+            "-O3",
+            "-fPIC",
+            "-Iinclude",
+            "-fopenmp",
+            "-o",
+            "src/rng.o",
+            "src/rng.cpp"
+        ],
+        "directory": "/home/luting/projects/AnchorMapping/anchor-based-mapping",
+        "file": "src/rng.cpp"
+    },
+    {
+        "arguments": [
+            "clang++",
+            "-c",
+            "-std=c++17",
+            "-O3",
+            "-fPIC",
+            "-Iinclude",
+            "-fopenmp",
+            "-o",
+            "src/accesslogger.o",
+            "src/accesslogger.cpp"
+        ],
+        "directory": "/home/luting/projects/AnchorMapping/anchor-based-mapping",
+        "file": "src/accesslogger.cpp"
+    },
+    {
+        "arguments": [
+            "clang++",
+            "-c",
+            "-std=c++17",
+            "-O3",
+            "-fPIC",
+            "-Iinclude",
+            "-fopenmp",
+            "-o",
+            "src/tools.o",
+            "src/tools.cpp"
+        ],
+        "directory": "/home/luting/projects/AnchorMapping/anchor-based-mapping",
+        "file": "src/tools.cpp"
+    }
+]

@@ -210,7 +210,7 @@ CandidateResults retrieveCandidates_anchor(
             ref_segment += (char)c; // Dna5 to char conversion
         }
         int dist = levenshtein(query, ref_segment);
-        std::cout << "query: " << query << ", ref: " << ref_segment << "distance: " << dist << endl;
+        std::cout << "query: " << query << ", ref: " << ref_segment << "distance: " << dist << std::endl;
         
         // 3. 累加
         total_distance += (double)dist;

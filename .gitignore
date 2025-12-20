@@ -2,13 +2,15 @@ anchor_index.json
 main_1.cpp
 test/fig/*
 test/csv/*
-!test/csv/comparison_fullTP.csv
-!test/csv/comparison_updatedTP.csv
-!test/csv/comparison_distance1_30.csv
-!test/csv/comparison_distance1_30_sae.csv
+# !test/csv/comparison_fullTP.csv
+# !test/csv/comparison_updatedTP.csv
+# !test/csv/comparison_distance1_30.csv
+# !test/csv/comparison_distance1_30_sae.csv
+!test/csv/comparison_distance1_30_sae_mt.csv
 test/*.txt
 test/csv/sweep_results_anchor_full.csv
 test/csv/sweep_results_idx.csv
 test/csv/sweep_results_max_dist.csv
 dist_counts_radius_3.txt
 test/FPTP*
+.cache/*

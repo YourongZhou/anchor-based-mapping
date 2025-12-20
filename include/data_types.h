@@ -1,8 +1,15 @@
-// ----------------- include/data_types.h -----------------
 #ifndef DATA_TYPES_H
 #define DATA_TYPES_H
 
-using namespace std;
+#include <vector>
+#include <string>
+#include "mtree_types.h"
+#include "functions.h"
+#include "levenshtein.hpp"
+#include "mtree.h"  // 必须包含 mtree.h 才能定义 MTree 别名
+
+// Substring 已经在 mtree_types.h 中定义
+
 using namespace mt;
 
 // Levenshtein 距离封装，只比较 seq
@@ -14,19 +21,18 @@ struct SubstringLevDist {
 
 using Data = Substring;
 using Distance = SubstringLevDist;
-using CachedDistance = functions::cached_distance_function<Data, Distance>;
+using CachedDistance = mt::functions::cached_distance_function<Data, Distance>;
 
 // split function 类型定义
-// using SplitStrategyType = functions::TwoWaySplitStrategy<
-//     functions::random_promotion,
-//     functions::balanced_partition
-// >;
-using SplitStrategyType = functions::OptimizedKSplitStrategy;
-using MTree = mtree<Data, Distance, SplitStrategyType>;
+using SplitStrategyType = mt::functions::OptimizedKSplitStrategy;
+using MTree = mt::mtree<Data, Distance, SplitStrategyType>;
 
 struct CandidateResults {
     std::vector<int> positions; // 原函数返回的起始位置
     double average_distance;    // 平均编辑距离
+    // 增加统计信息字段
+    size_t node_access = 0;
+    std::vector<double> leaf_node_radii;
 };
 
 #endif // DATA_TYPES_H

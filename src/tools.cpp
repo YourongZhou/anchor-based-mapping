@@ -49,14 +49,17 @@ std::vector<int> find_all_occurrences_approx(
     int max_dist
 ) {
     std::vector<int> positions;
-    int qlen = query.size();
-    int rlen = ref.size();
+    int qlen = (int)query.size();
+    int rlen = (int)ref.size();
 
     if (qlen > rlen) return positions;
 
+    std::string_view q_view(query);
+    std::string_view r_view(ref);
+
     for (int i = 0; i <= rlen - qlen; i++) {
-        std::string window = ref.substr(i, qlen);
-        int d = levenshtein(query, window);
+        std::string_view window = r_view.substr(i, qlen);
+        int d = levenshtein_with_threshold(q_view, window, max_dist / 2);
         if (d <= max_dist / 2) {
             positions.push_back(i);
         }
@@ -118,7 +121,7 @@ void build_mtree_from_ref(const std::string &ref, int k, MTree &tree) {
 }
 
 // ======================== 查询函数 ========================
-std::tuple<vector<int>, size_t, std::vector<double>> retrieveCandidates_mtree(
+std::tuple<std::vector<int>, size_t, std::vector<double>> retrieveCandidates_mtree(
     MTree &mtree,
     const std::string &query,
     int maxDist)
@@ -156,10 +159,10 @@ CandidateResults retrieveCandidates_sae(
 {
     // 原始的比对评分 (用于 extendSeed)： match=+1, mismatch=-1, gap=-1
     seqan::Score<int, seqan::Simple> scoring(1, -1, -1); 
-    int xDropThreshold = maxDist * 4; 
+    int xDropThreshold = maxDist * 4;
     
     // 编辑距离的评分 (用于计算编辑距离，仅在 require_distance=true 时需要)
-    seqan::Score<int, seqan::Simple> edit_scoring(0, -1, -1); 
+    seqan::Score<int, seqan::Simple> edit_scoring(0, -1, -1);
 
     std::string qseq_str = query;
     std::transform(qseq_str.begin(), qseq_str.end(), qseq_str.begin(), ::toupper);
@@ -184,22 +187,11 @@ CandidateResults retrieveCandidates_sae(
 
     // 遍历所有可能的种子
     for (size_t i = 0; i + seed_len <= qseq_str.size(); i += seed_len) {
-        #pragma omp critical (GlobalLoggerLock)
-        {
-            globalLogger.accessIndex("seed");
-        }
-        
-        std::string seed_str = qseq_str.substr(i, seed_len);
-        seqan::Dna5String seed;
-        seqan::assign(seed, seed_str);
+        auto seed = seqan::infix(qseq, i, i + seed_len);
         
         seqan::clear(finder);
         
         while (seqan::find(finder, seed)) {
-            #pragma omp critical (GlobalLoggerLock)
-            {
-                globalLogger.accessCandidate("extend");
-            }
             size_t seed_ini_pos_on_ref = seqan::position(finder);
             
             TSeed s(seed_ini_pos_on_ref, i, 

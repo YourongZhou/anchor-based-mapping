@@ -7,6 +7,7 @@
 #include <queue>
 #include <utility>
 #include <cassert>
+#include <iomanip>
 
 #include "mtree_types.h"
 #include "functions.h"

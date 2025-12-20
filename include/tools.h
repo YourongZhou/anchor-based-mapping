@@ -52,13 +52,11 @@ std::vector<int> find_all_occurrences_approx(
 // 小工具：把 int positions 转成 string id （用于复用现有 string-based metrics）
 std::vector<std::string> posVecToStrVec(const std::vector<int> &pos);
 
-#endif
-
 // ======================== 构建函数 ========================
 void build_mtree_from_ref(const std::string &ref, int k, MTree &tree);
 
 // ======================== 查询函数 ========================
-std::tuple<vector<int>, size_t, std::vector<double>> retrieveCandidates_mtree(
+std::tuple<std::vector<int>, size_t, std::vector<double>> retrieveCandidates_mtree(
     MTree &mtree,
     const std::string &query,
     int maxDist);
@@ -93,3 +91,5 @@ bool load_fm_index_cache(seqan::Index<seqan::Dna5String, seqan::FMIndex<>>& fm_i
 
 // 辅助函数：将逗号分隔的字符串解析为整数列表
 std::vector<int> parseIntList(const std::string& str);
+
+#endif

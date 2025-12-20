@@ -16,6 +16,8 @@ SRC = src/anchor_gen.cpp \
 
 OBJ = $(SRC:.cpp=.o)
 
+-DCMAKE_EXPORT_COMPILE_COMMANDS=1
+
 # Output binary
 TARGET = anchor_mapping
 
@@ -32,4 +34,4 @@ src/%.o: src/%.cpp
 
 # Clean build files
 clean:
-	rm -f src/*.o $(TARGET)
+	rm -f src/*.o main.o $(TARGET)
