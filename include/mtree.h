@@ -381,6 +381,7 @@ public:
 
 					// 遍历父节点的子节点（可能是 LeafNode 或 InternalNode）
                     for(auto i = node->children.begin(); i != node->children.end(); ++i) {
+                        globalLogger.accessIndex("mtree node");
                         
                         // 1. 获取子节点指针
                         // 假设 ChildrenMap 是 <Data, std::shared_ptr<IndexItem>>
@@ -769,8 +770,8 @@ public:
         result.nodeAccesses = lazy_query.nodeAccess;
 		result.leafNodeRadii = std::move(lazy_query.accessedLeafNodeRadii);
 
-		// log
-		globalLogger.accessIndex("mtree node");
+		// // log
+		// globalLogger.accessIndex("mtree node");
         
         return result;
 	}

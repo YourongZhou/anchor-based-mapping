@@ -185,6 +185,7 @@ private:
         std::cout << "query_maxDist: " << maxDist << "\n";
 
         collector.reset();
+        globalLogger.reset(); // 确保每个 batch 的访问统计独立
 
         // 1. 生成/读取查询
         std::vector<std::string> queries;

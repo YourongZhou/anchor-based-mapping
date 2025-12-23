@@ -19,9 +19,8 @@ public:
     CandidateResults retrieve(const std::string& query, int maxDist, bool requireDistance) override {
         auto [pos, access, radii_vec] = retrieveCandidates_mtree(mtree, query, maxDist);
         
-        double avg_dist = 0;
-        // 注意：这里不再修改成员变量，保持线程安全
-        return {pos, avg_dist, access, radii_vec};
+        // 注意：这里不再设置固定的 0.0，而是让 Manager 通过 metrics::evaluateDistances 计算
+        return {pos, 0.0, access, radii_vec};
     }
 
     // reportStats 在并行环境下难以直接报告“最后一次”，建议由 Manager 统一处理聚合信息

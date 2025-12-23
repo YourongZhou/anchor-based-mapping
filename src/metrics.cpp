@@ -47,12 +47,12 @@ void calculate_position_metrics(const std::vector<int>& truth_pos_unsorted,
         
         if (found) tp++;
         else fn++;
-    }
+        }
     
     for (bool hit : candidate_hit) {
         if (!hit) fp++;
+        }
     }
-}
 
 // 兼容版本
 void calculate_position_metrics(const std::vector<std::string>& truth,

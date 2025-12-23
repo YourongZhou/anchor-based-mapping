@@ -157,9 +157,13 @@ CandidateResults retrieveCandidates_sae(
     int seed_len,
     bool require_distance) // 新增的控制 flag
 {
+    // ...
+    size_t local_access_count = 0;
+    
     // 原始的比对评分 (用于 extendSeed)： match=+1, mismatch=-1, gap=-1
     seqan::Score<int, seqan::Simple> scoring(1, -1, -1); 
     int xDropThreshold = maxDist * 4;
+    // ...
     
     // 编辑距离的评分 (用于计算编辑距离，仅在 require_distance=true 时需要)
     seqan::Score<int, seqan::Simple> edit_scoring(0, -1, -1);
@@ -187,11 +191,15 @@ CandidateResults retrieveCandidates_sae(
 
     // 遍历所有可能的种子
     for (size_t i = 0; i + seed_len <= qseq_str.size(); i += seed_len) {
+        local_access_count++;
+        globalLogger.accessIndex("sae seed");
         auto seed = seqan::infix(qseq, i, i + seed_len);
         
         seqan::clear(finder);
         
         while (seqan::find(finder, seed)) {
+            local_access_count++;
+            globalLogger.accessCandidate("sae extend");
             size_t seed_ini_pos_on_ref = seqan::position(finder);
             
             TSeed s(seed_ini_pos_on_ref, i, 
@@ -255,6 +263,7 @@ CandidateResults retrieveCandidates_sae(
     // a. 处理位置结果 (总是填充)
     final_results.positions.reserve(unique_positions.size());
     final_results.positions.assign(unique_positions.begin(), unique_positions.end());
+    final_results.node_access = local_access_count;
     
     // b. 计算平均距离 (仅在需要且有候选者时进行计算)
     if (require_distance && candidate_count > 0) {
