@@ -40,6 +40,7 @@ struct ExperimentConfig {
     std::string index_dir = "./index_cache";
     bool force_rebuild = false;
     bool require_distance = false;
+    bool enable_grouping = false;  // Cache-Aware WORM 策略开关
 };
 
 // 结果收集器
@@ -160,7 +161,8 @@ private:
             return std::make_unique<MTreeRetriever>(
                 config.min_node_capacity, config.max_node_capacity,
                 config.leaf_radius_threshold, config.compactness_min_capacity,
-                config.compactness_radius_factor, config.anchor_len);
+                config.compactness_radius_factor, config.anchor_len,
+                config.enable_grouping);
         } else if (config.method == "anchor") {
             return std::make_unique<AnchorRetriever>(
                 config.num_anchors, config.anchor_len, config.use_all,
@@ -235,18 +237,42 @@ private:
         }
 
         // 4. 执行查询评估
-        #pragma omp parallel for schedule(dynamic)
-        for (size_t i = 0; i < queries.size(); ++i) {
-            auto cand_results = retriever->retrieve(queries[i], maxDist, config.require_distance);
-            
-            const auto& truth_pos = truth_positions[i];
-            const auto& cand_pos = cand_results.positions;
-            
-            int tp = 0, fp = 0, fn = 0;
-            metrics::calculate_position_metrics(truth_pos, cand_pos, maxDist, tp, fp, fn);
-            auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_pos, reference);
+        // 检查是否是 MTreeRetriever 且启用了分组
+        MTreeRetriever* mtree_retriever = dynamic_cast<MTreeRetriever*>(retriever.get());
+        bool use_batch_mode = (mtree_retriever != nullptr && mtree_retriever->isGroupingEnabled());
 
-            collector.addResult({tp, fp, fn, avg_dist, (double)max_dist, cand_results.node_access, cand_results.leaf_node_radii});
+        if (use_batch_mode) {
+            // Cache-Aware WORM 策略：批量查询模式
+            std::cout << "[ExperimentManager] Using batch query mode (Cache-Aware WORM)\n";
+            auto batch_results = mtree_retriever->retrieveBatch(queries, maxDist, config.require_distance);
+            
+            // 处理批量查询结果
+            for (size_t i = 0; i < queries.size(); ++i) {
+                const auto& cand_results = batch_results[i];
+                const auto& truth_pos = truth_positions[i];
+                const auto& cand_pos = cand_results.positions;
+                
+                int tp = 0, fp = 0, fn = 0;
+                metrics::calculate_position_metrics(truth_pos, cand_pos, maxDist, tp, fp, fn);
+                auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_pos, reference);
+
+                collector.addResult({tp, fp, fn, avg_dist, (double)max_dist, cand_results.node_access, cand_results.leaf_node_radii});
+            }
+        } else {
+            // 原始并行模式
+            #pragma omp parallel for schedule(dynamic)
+            for (size_t i = 0; i < queries.size(); ++i) {
+                auto cand_results = retriever->retrieve(queries[i], maxDist, config.require_distance);
+                
+                const auto& truth_pos = truth_positions[i];
+                const auto& cand_pos = cand_results.positions;
+                
+                int tp = 0, fp = 0, fn = 0;
+                metrics::calculate_position_metrics(truth_pos, cand_pos, maxDist, tp, fp, fn);
+                auto [avg_dist, max_dist] = metrics::evaluateDistances(queries[i], cand_pos, reference);
+
+                collector.addResult({tp, fp, fn, avg_dist, (double)max_dist, cand_results.node_access, cand_results.leaf_node_radii});
+            }
         }
 
         // 5. 打印汇总报告

@@ -818,6 +818,70 @@ public:
         return root->size();
     }
 
+	/**
+	 * @brief 获取顶层节点作为分桶锚点 (Routing Anchors)
+	 * @details 用于 Cache-Aware WORM 策略：将查询按几何距离分桶
+	 *          如果根节点是叶子节点，返回空（单节点树）
+	 *          如果根节点的子节点数太少（<10），递归获取下一层，直到数量合适（50-100个）
+	 * @return 顶层节点的数据向量，用作查询分桶的锚点
+	 */
+	std::vector<Data> getRoutingAnchors(size_t min_count = 50, size_t max_count = 100) const {
+		std::vector<Data> anchors;
+		if (!root) return anchors;
+
+		// 检查根节点是否有子节点，以及子节点是否是 Node 类型
+		// 如果根节点是叶子节点（RootLeafNode），其子节点是 Entry，不是 Node
+		if (root->children.empty()) {
+			return anchors; // 空树
+		}
+
+		// 检查第一个子节点是否是 Node（非 Entry）
+		// 如果第一个子节点是 Entry，说明根节点是叶子节点，无法分桶
+		const Node* firstChildNode = dynamic_cast<const Node*>(root->children.begin()->second);
+		if (firstChildNode == nullptr) {
+			return anchors; // 根节点是叶子节点，子节点都是 Entry，无法分桶
+		}
+
+		// 从根节点开始，收集子节点数据
+		std::queue<const Node*> nodeQueue;
+		nodeQueue.push(root);
+
+		while (!nodeQueue.empty() && anchors.size() < max_count) {
+			const Node* current = nodeQueue.front();
+			nodeQueue.pop();
+
+			// 遍历当前节点的所有子节点
+			for (const auto& [key, child] : current->children) {
+				if (anchors.size() >= max_count) break;
+
+				// 检查子节点是否是 Node（非叶子节点）
+				const Node* childNode = dynamic_cast<const Node*>(child);
+				if (childNode != nullptr) {
+					// 如果是内部节点，将其数据作为锚点
+					anchors.push_back(childNode->data);
+					
+					// 如果锚点数量还不够，继续向下遍历
+					if (anchors.size() < min_count) {
+						nodeQueue.push(childNode);
+					}
+				}
+			}
+		}
+
+		// 如果收集到的锚点太少，至少返回根节点的直接子节点
+		if (anchors.size() < 10) {
+			anchors.clear();
+			for (const auto& [key, child] : root->children) {
+				const Node* childNode = dynamic_cast<const Node*>(child);
+				if (childNode != nullptr) {
+					anchors.push_back(childNode->data);
+				}
+			}
+		}
+
+		return anchors;
+	}
+
 public:
 
 	void _check() const {
