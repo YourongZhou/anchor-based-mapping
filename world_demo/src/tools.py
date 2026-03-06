@@ -47,6 +47,57 @@ def compute_distance(seq_a: BioSequence, seq_b: BioSequence) -> int:
     return dp[m][n]
 
 
+def _center_for_distance(obj):
+    """Extract a sequence object for distance calculation. BioSequence -> self; WorldNode -> center as BioSequence."""
+    if isinstance(obj, BioSequence):
+        return obj
+    from .structure import WorldNode
+    if isinstance(obj, WorldNode):
+        seq = obj.get_center_sequence()
+        return BioSequence("_center", seq)
+    if hasattr(obj, 'seq'):
+        return obj
+    return None
+
+
+def farthest_point_sampling(candidates: List, k: int, distance_func=None):
+    """
+    Farthest Point Sampling (FPS): select k anchors that are maximally spread.
+    Used for post-build refinement of routing anchors.
+    
+    Args:
+        candidates: List of BioSequence or WorldNode (must have .seq or get_center_sequence).
+        k: Number of anchors to select.
+        distance_func: (a, b) -> int; defaults to compute_distance.
+    
+    Returns:
+        List of k candidates (subset of candidates).
+    """
+    if distance_func is None:
+        distance_func = compute_distance
+    if not candidates or k <= 0:
+        return []
+    k = min(k, len(candidates))
+    centers = [_center_for_distance(c) for c in candidates]
+    if any(c is None for c in centers):
+        return list(candidates[:k])
+    chosen_idx = [random.randint(0, len(candidates) - 1)]
+    while len(chosen_idx) < k:
+        best_idx = -1
+        best_min_dist = -1
+        for i in range(len(candidates)):
+            if i in chosen_idx:
+                continue
+            min_d = min(distance_func(centers[i], centers[j]) for j in chosen_idx)
+            if min_d > best_min_dist:
+                best_min_dist = min_d
+                best_idx = i
+        if best_idx < 0:
+            break
+        chosen_idx.append(best_idx)
+    return [candidates[i] for i in chosen_idx]
+
+
 class TwoBitSimulator:
     """2-bit 格式模拟器（内存版本）
     模拟从参考基因组提取序列的功能

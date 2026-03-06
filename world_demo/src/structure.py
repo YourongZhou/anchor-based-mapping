@@ -4,7 +4,7 @@ WorldNode 和 GenomePointer
 """
 
 import uuid
-from typing import List, Any, Optional, Union
+from typing import List, Any, Optional, Union, Dict
 
 
 # 常量配置
@@ -80,6 +80,10 @@ class WorldNode:
         # 子节点引用（支持 Multi-Parent）
         self.children: List[WorldNode] = []
         
+        # [NavigaMer] Internal Routing Table
+        self.routing_anchors: List[Union['WorldNode', BioSequence]] = []
+        self.routing_fingerprints: Dict[str, List[int]] = {}  # child_id -> distances to anchors
+        
         # 叶子节点数据（仅 SW 有效）
         self.disk_offset = -1  # 磁盘偏移（当前为内存模拟，暂不使用）
         self.data_count = 0  # 叶子节点数据数量
@@ -96,6 +100,18 @@ class WorldNode:
     def add_child(self, child: 'WorldNode'):
         """添加子节点（支持 Multi-Parent）"""
         self.children.append(child)
+    
+    def _get_child_id(self, child: Union['WorldNode', BioSequence]) -> str:
+        """统一获取子节点 ID：WorldNode 用 node_id，BioSequence 用 id"""
+        if isinstance(child, WorldNode):
+            return child.node_id
+        return getattr(child, 'id', str(id(child)))
+    
+    def add_child_with_fingerprint(self, child: Union['WorldNode', BioSequence], fingerprint: List[int]):
+        """添加子节点并记录到锚点指纹表（NavigaMer Routing）"""
+        self.children.append(child)
+        cid = self._get_child_id(child)
+        self.routing_fingerprints[cid] = fingerprint
     
     def is_overlapping(self, query_seq: Union[BioSequence, str], query_radius: int, distance_func) -> bool:
         """

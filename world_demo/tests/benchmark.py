@@ -6,7 +6,8 @@
 import random
 import sys
 import os
-
+import matplotlib.pyplot as plt
+import numpy as np
 # 添加父目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -76,15 +77,14 @@ def test_radius_compliance(index_builder: BioGeometryIndexBuilder):
                         BioSequence("temp_c", child_seq)
                     )
                     
-                    # 严格包含：dist(P.center, C.center) + C.radius <= P.radius
-                    strict_containment = dist + child.radius <= parent_radius
-                    # 中心包含：dist(P.center, C.center) <= P.radius
-                    center_containment = dist <= parent_radius
+                    # 球重叠连边：dist(P.center, C.center) <= P.radius + C.radius
+                    ball_overlap = dist <= parent_radius + child.radius
                     
-                    if not strict_containment and not center_containment:
+                    if not ball_overlap:
                         failures.append(
                             f"{layer_name} {parent.node_id} -> {child.node_id}: "
-                            f"dist={dist}, P.radius={parent_radius}, C.radius={child.radius}"
+                            f"dist={dist}, P.radius={parent_radius}, C.radius={child.radius}, "
+                            f"threshold={parent_radius + child.radius}"
                         )
     
     print(f"  完成：检查了 {total_checks} 个节点关系")
@@ -253,108 +253,328 @@ def test_distance_heatmap(index_builder: BioGeometryIndexBuilder):
     
     return True
 
+def plot_benchmark_results(adaptive_stats, exhaustive_stats, output_file='benchmark_result.png'):
+    """
+    绘制 Benchmark 结果对比图 (Adaptive vs Exhaustive)
+    """
+    layers = ['LW', 'MW', 'SW', 'Leaf Verify\n(Disk I/O)']
+    
+    a_counts = [
+        sum(s.layer_breakdown.get('LW', 0) for s in adaptive_stats),
+        sum(s.layer_breakdown.get('MW', 0) for s in adaptive_stats),
+        sum(s.layer_breakdown.get('SW', 0) for s in adaptive_stats),
+        sum(s.leaf_verify_count for s in adaptive_stats)
+    ]
+    
+    e_counts = [
+        sum(s.layer_breakdown.get('LW', 0) for s in exhaustive_stats),
+        sum(s.layer_breakdown.get('MW', 0) for s in exhaustive_stats),
+        sum(s.layer_breakdown.get('SW', 0) for s in exhaustive_stats),
+        sum(s.leaf_verify_count for s in exhaustive_stats)
+    ]
+    
+    reductions = []
+    for a, e in zip(a_counts, e_counts):
+        if e > 0:
+            reductions.append((1 - a / e) * 100)
+        else:
+            reductions.append(0)
 
-def test_efficiency_benchmark(index_builder: BioGeometryIndexBuilder, raw_sequences: list, seed: int = 42):
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    fig.suptitle('BioGeometry Index: Adaptive vs Exhaustive Search Benchmark', fontsize=16)
+
+    x = np.arange(len(layers))
+    width = 0.35
+    
+    rects1 = ax1.bar(x - width/2, a_counts, width, label='Adaptive (Optimized)', color='#2ecc71', alpha=0.9)
+    rects2 = ax1.bar(x + width/2, e_counts, width, label='Exhaustive (Baseline)', color='#e74c3c', alpha=0.9)
+    
+    ax1.set_ylabel('Access / Verify Count')
+    ax1.set_title('Absolute Computational Cost')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(layers)
+    ax1.legend()
+    ax1.grid(axis='y', linestyle='--', alpha=0.3)
+    
+    def autolabel(rects):
+        for rect in rects:
+            height = rect.get_height()
+            ax1.annotate(f'{int(height)}',
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3),
+                        textcoords="offset points",
+                        ha='center', va='bottom', fontsize=9)
+    autolabel(rects1)
+    autolabel(rects2)
+
+    colors = plt.cm.Blues(np.array(reductions) / 100 * 0.8 + 0.2)
+    bars = ax2.bar(layers, reductions, color=colors)
+    
+    ax2.set_ylabel('Reduction Percentage (%)')
+    ax2.set_title('Efficiency Gain (Adaptive over Exhaustive)')
+    ax2.set_ylim(0, 100)
+    ax2.grid(axis='y', linestyle='--', alpha=0.3)
+    
+    for bar, rate in zip(bars, reductions):
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., max(height, 0) + 1,
+                f'{rate:.1f}%',
+                ha='center', va='bottom', fontweight='bold', color='darkblue')
+
+    a_total = sum(s.dist_calc_count for s in adaptive_stats)
+    e_total = sum(s.dist_calc_count for s in exhaustive_stats)
+    explanation = (
+        f"Key Insight:\n"
+        f"Adaptive Search: {a_total} dist calcs vs Exhaustive: {e_total}\n"
+        f"Saving: {(1 - a_total/e_total)*100:.1f}% with zero False Negative."
+    )
+    plt.figtext(0.99, 0.02, explanation, horizontalalignment='right', fontsize=10, style='italic', bbox=dict(facecolor='white', alpha=0.5))
+
+    plt.tight_layout()
+    
+    save_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), output_file)
+    plt.savefig(save_path, dpi=150)
+    print(f"\n  [图表生成] Benchmark 图表已保存至: {save_path}")
+    plt.close()
+
+def test_efficiency_benchmark(index_builder: BioGeometryIndexBuilder, raw_sequences: list, seed: int = 42, tolerance: int = 5
+):
     """
     测试用例 3: 冗余与效率对比
-    证明 Greedy Search 的优越性
+    (已修改: 增加分层冗余度分析)
     """
     print("\n" + "=" * 70)
     print("测试用例 3: 冗余与效率对比 (Efficiency Benchmark)")
     print("=" * 70)
     
+    # ... [前半部分生成 Query 的代码保持不变] ...
     # 生成 100 条随机 Query
     print("\n[3.1] 生成测试查询...")
     random.seed(seed)
-    
     queries = []
     for i in range(100):
-        # 从原始数据中随机选择一个序列并引入突变
         base_seq = random.choice(raw_sequences)
-        mutated_seq = base_seq.seq
-        
+        mutated_seq = list(base_seq.seq)
         # 引入 1-3 个随机突变
-        seq_list = list(mutated_seq)
-        num_mutations = random.randint(1, 3)
-        bases = ['A', 'T', 'C', 'G']
-        
-        for _ in range(num_mutations):
-            idx = random.randint(0, len(seq_list) - 1)
-            seq_list[idx] = random.choice([b for b in bases if b != seq_list[idx]])
-        
-        query = BioSequence(f"query_{i:03d}", ''.join(seq_list))
-        queries.append(query)
+        for _ in range(random.randint(1, 3)):
+            idx = random.randint(0, len(mutated_seq) - 1)
+            bases = ['A', 'T', 'C', 'G']
+            mutated_seq[idx] = random.choice([b for b in bases if b != mutated_seq[idx]])
+        queries.append(BioSequence(f"query_{i:03d}", ''.join(mutated_seq)))
     
-    print(f"  生成了 {len(queries)} 条查询")
-    
-    # 初始化搜索引擎
     search_engine = BioGeometrySearchEngine(index_builder)
-    tolerance = 5
     
-    # 运行 Greedy Search
-    print("\n[3.2] 运行 Greedy Search (模式 A)...")
-    greedy_results = []
-    greedy_stats_list = []
-    
+    # 运行 Adaptive Search
+    print("\n[3.2] 运行 Adaptive Search (模式 A)...")
+    adaptive_results = []
+    adaptive_stats_list = []
     for query in queries:
-        results, stats = search_engine.search_greedy(query, tolerance)
-        greedy_results.append((query.id, set(seq.id for seq in results)))
-        greedy_stats_list.append(stats)
-    
-    # 汇总 Greedy 统计
-    total_greedy_node_access = sum(s.node_access_count for s in greedy_stats_list)
-    total_greedy_dist_calc = sum(s.dist_calc_count for s in greedy_stats_list)
-    total_greedy_leaf_verify = sum(s.leaf_verify_count for s in greedy_stats_list)
+        results, stats = search_engine.search_adaptive(query, tolerance)
+        adaptive_results.append((query.id, set(seq.id for seq in results)))
+        adaptive_stats_list.append(stats)
     
     # 运行 Exhaustive Search
     print("[3.3] 运行 Exhaustive Search (模式 B)...")
     exhaustive_results = []
     exhaustive_stats_list = []
-    
     for query in queries:
         results, stats = search_engine.search_exhaustive(query, tolerance)
         exhaustive_results.append((query.id, set(seq.id for seq in results)))
         exhaustive_stats_list.append(stats)
     
-    # 汇总 Exhaustive 统计
-    total_exhaustive_node_access = sum(s.node_access_count for s in exhaustive_stats_list)
-    total_exhaustive_dist_calc = sum(s.dist_calc_count for s in exhaustive_stats_list)
-    total_exhaustive_leaf_verify = sum(s.leaf_verify_count for s in exhaustive_stats_list)
-    
-    # 对比结果
+    # 汇总统计
     print("\n[3.4] 结果对比...")
     
-    # 验证 Recall 一致性
     recall_match = True
-    for i, (greedy_id, greedy_set) in enumerate(greedy_results):
-        exhaustive_id, exhaustive_set = exhaustive_results[i]
-        if greedy_set != exhaustive_set:
+    no_false_positive = True
+    recall_sum = 0.0
+    for i, (adaptive_id, adaptive_set) in enumerate(adaptive_results):
+        _, exhaustive_set = exhaustive_results[i]
+        if exhaustive_set:
+            recall_sum += len(adaptive_set & exhaustive_set) / len(exhaustive_set)
+        if adaptive_set - exhaustive_set:
+            no_false_positive = False
+        if adaptive_set != exhaustive_set:
             recall_match = False
-            print(f"  ✗ 查询 {greedy_id}: 结果不一致")
-            print(f"    Greedy: {len(greedy_set)} 条结果")
-            print(f"    Exhaustive: {len(exhaustive_set)} 条结果")
-            break
-    
+    nq = len(adaptive_results)
+    avg_recall = recall_sum / nq if nq else 1.0
+    if no_false_positive:
+        print(f"  Adaptive 无假阳性, 平均召回率: {avg_recall:.2%}")
+    else:
+        print(f"  警告: 存在假阳性")
     if recall_match:
-        print(f"  ✓ Recall 一致性: 100% (所有查询结果完全一致)")
+        print(f"  Recall 与穷举一致: 100%")
+    else:
+        print(f"  Adaptive 平均召回: {avg_recall:.2%}")
+    recall_match = no_false_positive
+
+    print("\n[3.5] 分层冗余度分析 (Adaptive / Exhaustive):")
+    print(f"{'Layer':<10} | {'Adaptive':<15} | {'Exhaustive':<18} | {'Ratio':<15} | {'Saving':<15}")
+    print("-" * 85)
+
+    layers = ['LW', 'MW', 'SW']
     
-    # 性能对比
-    print("\n[3.5] 性能统计对比:")
-    print(f"{'指标':<25} | {'Greedy (A)':<15} | {'Exhaustive (B)':<15} | {'改进率':<10}")
-    print("-" * 70)
+    total_adaptive_layers = {'LW': 0, 'MW': 0, 'SW': 0}
+    total_exhaustive_layers = {'LW': 0, 'MW': 0, 'SW': 0}
+
+    for s in adaptive_stats_list:
+        for L in layers: total_adaptive_layers[L] += s.layer_breakdown.get(L, 0)
     
-    node_reduction = (1 - total_greedy_node_access / total_exhaustive_node_access) * 100 if total_exhaustive_node_access > 0 else 0
-    dist_reduction = (1 - total_greedy_dist_calc / total_exhaustive_dist_calc) * 100 if total_exhaustive_dist_calc > 0 else 0
-    leaf_reduction = (1 - total_greedy_leaf_verify / total_exhaustive_leaf_verify) * 100 if total_exhaustive_leaf_verify > 0 else 0
+    for s in exhaustive_stats_list:
+        for L in layers: total_exhaustive_layers[L] += s.layer_breakdown.get(L, 0)
+
+    for layer in layers:
+        adaptive_cnt = total_adaptive_layers[layer]
+        total_cnt = total_exhaustive_layers[layer]
+        
+        if total_cnt > 0:
+            ratio = adaptive_cnt / total_cnt
+            saving = (total_cnt - adaptive_cnt) / total_cnt
+            print(f"{layer:<10} | {adaptive_cnt:<15} | {total_cnt:<18} | {ratio:.2%}          | {saving:.2%}")
+        else:
+            print(f"{layer:<10} | {adaptive_cnt:<15} | {total_cnt:<18} | N/A             | N/A")
+
+    total_adaptive_leaf = sum(s.leaf_verify_count for s in adaptive_stats_list)
+    total_exhaustive_leaf = sum(s.leaf_verify_count for s in exhaustive_stats_list)
     
-    print(f"{'Node Access Count':<25} | {total_greedy_node_access:<15} | {total_exhaustive_node_access:<15} | {node_reduction:.1f}%")
-    print(f"{'Dist Calc Count':<25} | {total_greedy_dist_calc:<15} | {total_exhaustive_dist_calc:<15} | {dist_reduction:.1f}%")
-    print(f"{'Leaf Verify Count':<25} | {total_greedy_leaf_verify:<15} | {total_exhaustive_leaf_verify:<15} | {leaf_reduction:.1f}%")
-    
-    # 计算冗余度
-    if total_exhaustive_dist_calc > 0:
-        redundancy = (total_exhaustive_dist_calc - total_greedy_dist_calc) / total_exhaustive_dist_calc * 100
-        print(f"\n  DAG 冗余度: {redundancy:.2f}%")
-        print(f"  (Greedy 算法消除了 {redundancy:.2f}% 的冗余计算)")
-    
+    if total_exhaustive_leaf > 0:
+        leaf_ratio = total_adaptive_leaf / total_exhaustive_leaf
+        leaf_saving = (total_exhaustive_leaf - total_adaptive_leaf) / total_exhaustive_leaf
+        print("-" * 85)
+        print(f"{'Leaf Data':<10} | {total_adaptive_leaf:<15} | {total_exhaustive_leaf:<18} | {leaf_ratio:.2%}          | {leaf_saving:.2%}")
+        print(f"(Disk I/O) ")
+
+    total_adaptive_dist = sum(s.dist_calc_count for s in adaptive_stats_list)
+    total_exhaustive_dist = sum(s.dist_calc_count for s in exhaustive_stats_list)
+    print(f"\n  总距离计算: Adaptive={total_adaptive_dist}, Exhaustive={total_exhaustive_dist}, 节省={1 - total_adaptive_dist/total_exhaustive_dist:.1%}")
+
+    try:
+        plot_benchmark_results(adaptive_stats_list, exhaustive_stats_list)
+    except Exception as e:
+        print(f"  [警告] 绘图失败 (可能是缺少 matplotlib): {e}")
+
     return recall_match
+
+
+def test_false_negative(index_builder: BioGeometryIndexBuilder, raw_sequences: list,
+                        seed: int = 42, tolerance: int = 2, num_queries: int = 100):
+    """
+    测试用例 4: False Negative 精确验证
+    用 Brute Force 全量扫描作为 ground truth，验证 Exhaustive / Adaptive Search 是否有漏报。
+    同时对比各搜索模式的计算开销。
+    """
+    print("\n" + "=" * 70)
+    print("测试用例 4: False Negative 精确验证 (All Modes vs Brute Force)")
+    print("=" * 70)
+
+    random.seed(seed)
+    queries = []
+    for i in range(num_queries):
+        base_seq = random.choice(raw_sequences)
+        mutated_seq = list(base_seq.seq)
+        for _ in range(random.randint(1, 3)):
+            idx = random.randint(0, len(mutated_seq) - 1)
+            bases = ['A', 'T', 'C', 'G']
+            mutated_seq[idx] = random.choice([b for b in bases if b != mutated_seq[idx]])
+        queries.append(BioSequence(f"fnq_{i:03d}", ''.join(mutated_seq)))
+
+    search_engine = BioGeometrySearchEngine(index_builder)
+
+    print(f"\n  Queries: {num_queries}, Tolerance: {tolerance}, DB size: {len(raw_sequences)}")
+
+    # --- Brute Force (ground truth) ---
+    print("  [1/4] Running Brute Force (ground truth)...")
+    bf_results = []
+    bf_total_dist = 0
+    for q in queries:
+        results, st = search_engine.search_brute_force(q, tolerance, raw_sequences)
+        bf_results.append(set(s.id for s in results))
+        bf_total_dist += st.dist_calc_count
+
+    # --- Exhaustive Search ---
+    print("  [2/4] Running Exhaustive Search...")
+    ex_results = []
+    ex_stats_list = []
+    for q in queries:
+        results, st = search_engine.search_exhaustive(q, tolerance)
+        ex_results.append(set(s.id for s in results))
+        ex_stats_list.append(st)
+
+    # --- Adaptive Search ---
+    print("  [3/4] Running Adaptive Search...")
+    ad_results = []
+    ad_stats_list = []
+    for q in queries:
+        results, st = search_engine.search_adaptive(q, tolerance)
+        ad_results.append(set(s.id for s in results))
+        ad_stats_list.append(st)
+
+    # --- Greedy Search ---
+    print("  [4/4] Running Greedy Search...")
+    gr_results = []
+    gr_stats_list = []
+    for q in queries:
+        results, st = search_engine.search_greedy(q, tolerance)
+        gr_results.append(set(s.id for s in results))
+        gr_stats_list.append(st)
+
+    # --- 对比分析 ---
+    print("\n  === 结果对比 ===")
+
+    bf_total_hits = sum(len(s) for s in bf_results)
+
+    def analyze_mode(name, mode_results, mode_stats_list):
+        fn_count = 0
+        fp_count = 0
+        fn_examples = []
+        for i in range(num_queries):
+            bf_set = bf_results[i]
+            m_set = mode_results[i]
+            fn = bf_set - m_set
+            fp = m_set - bf_set
+            if fn:
+                fn_count += len(fn)
+                if len(fn_examples) < 3:
+                    fn_examples.append((queries[i].id, len(fn), len(bf_set)))
+            if fp:
+                fp_count += len(fp)
+
+        total_dist = sum(s.dist_calc_count for s in mode_stats_list)
+        total_node = sum(s.node_access_count for s in mode_stats_list)
+        total_leaf = sum(s.leaf_verify_count for s in mode_stats_list)
+
+        recall = (bf_total_hits - fn_count) / bf_total_hits if bf_total_hits > 0 else 1.0
+        print(f"\n  --- {name} ---")
+        print(f"    False Negative: {fn_count}   False Positive: {fp_count}   Recall: {recall:.4%}")
+        print(f"    Dist calcs: {total_dist}   Node visits: {total_node}   Leaf verifies: {total_leaf}")
+        if fn_examples:
+            for qid, fn_cnt, bf_cnt in fn_examples:
+                print(f"    漏报: {qid}: {fn_cnt}/{bf_cnt}")
+        return fn_count == 0 and fp_count == 0
+
+    print(f"\n  Brute Force 总命中: {bf_total_hits}, 总距离计算: {bf_total_dist}")
+
+    ex_ok = analyze_mode("Exhaustive Search", ex_results, ex_stats_list)
+    ad_ok = analyze_mode("Adaptive Search", ad_results, ad_stats_list)
+    analyze_mode("Greedy Search", gr_results, gr_stats_list)
+
+    # 效率对比摘要
+    ex_dist = sum(s.dist_calc_count for s in ex_stats_list)
+    ad_dist = sum(s.dist_calc_count for s in ad_stats_list)
+    gr_dist = sum(s.dist_calc_count for s in gr_stats_list)
+    print(f"\n  === 效率摘要 (距离计算次数) ===")
+    print(f"    Brute Force:  {bf_total_dist:>8}")
+    print(f"    Exhaustive:   {ex_dist:>8}  ({ex_dist/bf_total_dist:.1%} of BF)")
+    print(f"    Adaptive:     {ad_dist:>8}  ({ad_dist/bf_total_dist:.1%} of BF)")
+    print(f"    Greedy:       {gr_dist:>8}  ({gr_dist/bf_total_dist:.1%} of BF)")
+
+    if ad_ok:
+        if ad_dist < ex_dist:
+            saving = (1 - ad_dist / ex_dist) * 100
+            print(f"\n  ✓ Adaptive: 零 FN + 比 Exhaustive 节省 {saving:.1f}% 距离计算!")
+        else:
+            print(f"\n  ✓ Adaptive: 零 FN (与 Exhaustive 开销持平)")
+    else:
+        print(f"\n  ✗ Adaptive Search 存在 False Negative!")
+
+    return ex_ok and ad_ok

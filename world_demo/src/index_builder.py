@@ -1,34 +1,55 @@
 """
-索引构建器 (Incremental Version)
-实现 Incremental DAG 构建逻辑，支持 Multi-Parent
-解决 O(N^2) 内存问题，支持流式插入
+索引构建器 (NavigaMer v6 - Ball-Overlap Coverage Invariant)
+
+核心不变量 — 覆盖性：
+  对任意叶子 s 和任意节点 N（任意层），
+  如果 dist(s, N.center) <= N.radius，则从 N 沿子树可达 s。
+
+实现方式（三角不等式推导）：
+  - 叶子补插：每个叶子出现在所有 dist(s, SW.center) <= R_SW 的 SW 中
+  - 球重叠连边：
+      SW→MW: dist(SW.center, MW.center) <= R_MW + R_SW
+      MW→LW: dist(MW.center, LW.center) <= R_LW + R_MW
+    这保证：若叶子 s 在 MW 球内，则包含 s 的某个 SW 一定被连到该 MW。
+    证明：dist(SW.center, MW.center) <= dist(SW.center, s) + dist(s, MW.center)
+                                      <= R_SW + R_MW
+    同理对 MW→LW 层。
+
+搜索时过滤条件：
+  由于球重叠连边已保证覆盖性，搜索时只需 dist > N.radius + tolerance 即可安全剪枝，
+  无需额外的累积半径补偿。
 """
 
-import uuid
+import random
 from typing import List, Dict, Union, Set
 from .structure import WorldNode, BioSequence, GenomePointer, R_SW, R_MW, R_LW
-from .tools import compute_distance
+from .tools import compute_distance, farthest_point_sampling
+
+
+def _to_seq_obj(obj):
+    """Get an object with .seq for compute_distance. BioSequence -> self; WorldNode -> center as BioSequence."""
+    if isinstance(obj, BioSequence):
+        return obj
+    if isinstance(obj, WorldNode):
+        return BioSequence("_center", obj.get_center_sequence())
+    if isinstance(obj, GenomePointer):
+        return BioSequence("_center", obj.get_sequence())
+    return None
+
 
 class BioGeometryIndexBuilder:
-    """索引构建器主类 (增量插入版)"""
+    """索引构建器主类 (NavigaMer 穷举插入 + 路由锚点)"""
+    
+    ANCHOR_COUNT = 3  # 每节点内部锚点数量
     
     def __init__(self):
         """初始化索引构建器"""
-        # 层级存储：Layer 3 (LW) 是入口
         self.layers: Dict[int, List[WorldNode]] = {
-            1: [],  # Layer 1: SW
-            2: [],  # Layer 2: MW
-            3: []   # Layer 3: LW (Root Candidates)
+            1: [],
+            2: [],
+            3: []
         }
-        
-        # 半径配置
-        self.radius_config = {
-            1: R_SW,
-            2: R_MW,
-            3: R_LW
-        }
-        
-        # 统计信息
+        self.radius_config = {1: R_SW, 2: R_MW, 3: R_LW}
         self.stats = {
             'added_sequences': 0,
             'created_nodes': {1: 0, 2: 0, 3: 0}
@@ -36,166 +57,267 @@ class BioGeometryIndexBuilder:
     
     def build(self, raw_sequences: List[BioSequence]):
         """
-        构建索引的主入口 (流式处理)
-        
-        Args:
-            raw_sequences: 原始序列列表 (可以是生成器)
+        三阶段构建：
+        Phase 1 - 骨架构建（增量递归插入，创建节点）
+        Phase 2 - 全局 DAG 连通性优化（穷举重连，保证几何包含即连接）
+        Phase 3 - 路由锚点精炼（FPS 选锚点 + 重算指纹）
         """
-        print(f"[Build] Starting Incremental Build for {len(raw_sequences)} sequences...")
+        print(f"[Build] Starting NavigaMer Build for {len(raw_sequences)} sequences...")
         
-        for i, seq in enumerate(raw_sequences):
-            self.add_sequence(seq)
-            
+        # --- Phase 1: Skeleton Build ---
+        shuffled_seqs = list(raw_sequences)
+        random.shuffle(shuffled_seqs)
+        for i, seq in enumerate(shuffled_seqs):
+            self.stats['added_sequences'] += 1
+            self._recursive_insert(seq, self.layers[3])
             if (i + 1) % 100 == 0:
-                print(f"  Processed {i + 1} sequences...", end='\r')
+                print(f"  Phase 1: Processed {i + 1} sequences...", end='\r')
+        print(f"\n  Phase 1 done. SW={len(self.layers[1])}, MW={len(self.layers[2])}, LW={len(self.layers[3])}")
         
-        print(f"\n[Build] Completed. Added {self.stats['added_sequences']} sequences.")
+        # --- Phase 2: Global DAG Connectivity Optimization ---
+        print("  Phase 2: Optimizing DAG connectivity (Exhaustive Relinking)...")
+        self.optimize_dag_connectivity()
+        
+        # --- Phase 3: Anchor Refinement ---
+        print("  Phase 3: Refining routing anchors...")
+        self.refine_index()
+        
+        print(f"[Build] Completed. Added {self.stats['added_sequences']} sequences.")
         self._print_summary()
 
-    def add_sequence(self, new_sequence: BioSequence):
+    def _recursive_insert(self, item: BioSequence, candidates: List[WorldNode]):
         """
-        插入单个新序列 (伪代码: InsertSequence)
+        穷举递归：找到所有包含 item 的父节点，在目标层向所有有效父节点插入；否则创建新节点并向上冒泡。
         """
-        self.stats['added_sequences'] += 1
+        item_center = item  # BioSequence 自身即中心
+        item_radius = 0
+        valid_parents = []
+        for node in candidates:
+            q = _to_seq_obj(node.center_ptr)
+            if q is None:
+                continue
+            d = compute_distance(item_center, q)
+            if d <= node.radius:
+                valid_parents.append(node)
         
-        # 1. 寻找能包裹该序列的现有 SW 节点
-        # SearchForParents(new_sequence, IndexRoot, Layer=SW)
-        # 对于 Sequence，查询半径为 0
-        valid_sws = self._search_candidates(
-            query_center=new_sequence, 
-            query_radius=0, 
-            target_layer=1
-        )
-
-        if valid_sws:
-            # Case 1: 找到了一个或多个能容纳它的 SW
-            # 执行 DAG 多重插入
-            for sw_node in valid_sws:
-                sw_node.children.append(new_sequence)
-                sw_node.data_count += 1
+        if not valid_parents:
+            self._handle_new_node_creation(item)
             return
+        
+        current_layer = valid_parents[0].layer
+        target_layer = 1  # 序列插入目标为 SW 层
+        
+        if current_layer == target_layer:
+            for parent in valid_parents:
+                self._add_child_to_node(parent, item)
         else:
-            # Case 2: 没有任何旧 SW 能包含它
-            # 创建新的 SW 节点
-            new_sw_node = WorldNode(
-                center_ptr=new_sequence, # 这里直接用 sequence，实际工程中可能是 Pointer
-                radius=R_SW,
-                layer_level=1
-            )
-            # 把自己加进去作为第一个孩子
-            new_sw_node.children.append(new_sequence)
-            new_sw_node.data_count = 1
-            
-            # 注册到 Layer 1 列表 (用于统计和调试)
-            self.layers[1].append(new_sw_node)
-            self.stats['created_nodes'][1] += 1
-            
-            # 递归向上传递 (InsertNodeUpwards)
-            self._insert_node_upwards(new_sw_node)
+            next_candidates = []
+            seen = set()
+            for parent in valid_parents:
+                for c in parent.children:
+                    if isinstance(c, WorldNode):
+                        if c.node_id not in seen:
+                            seen.add(c.node_id)
+                            next_candidates.append(c)
+            self._recursive_insert(item, next_candidates)
+
+    def _handle_new_node_creation(self, item: BioSequence):
+        """无父节点时：创建新 SW，并递归向上插入."""
+        new_sw = WorldNode(center_ptr=item, radius=R_SW, layer_level=1)
+        self._add_child_to_node(new_sw, item)
+        new_sw.data_count = 1
+        self.layers[1].append(new_sw)
+        self.stats['created_nodes'][1] += 1
+        self._insert_node_upwards(new_sw)
+
+    def _add_child_to_node(self, parent: WorldNode, child: Union[WorldNode, BioSequence]):
+        """带锚点与指纹的子节点添加（增量前 K 锚点策略）."""
+        if len(parent.routing_anchors) < self.ANCHOR_COUNT:
+            parent.routing_anchors.append(child)
+        
+        child_center = child if isinstance(child, BioSequence) else _to_seq_obj(child)
+        if child_center is None:
+            child_center = _to_seq_obj(getattr(child, 'center_ptr', child))
+        fingerprint = []
+        for anchor in parent.routing_anchors:
+            anchor_center = anchor if isinstance(anchor, BioSequence) else _to_seq_obj(anchor)
+            if anchor_center is None:
+                anchor_center = _to_seq_obj(getattr(anchor, 'center_ptr', anchor))
+            if anchor is child:
+                fingerprint.append(0)
+            else:
+                fingerprint.append(compute_distance(child_center, anchor_center))
+        
+        parent.add_child_with_fingerprint(child, fingerprint)
+        if isinstance(child, BioSequence):
+            parent.data_count = len([c for c in parent.children if isinstance(c, BioSequence)])
 
     def _insert_node_upwards(self, child_node: WorldNode):
-        """
-        递归向上插入节点 (伪代码: InsertNodeUpwards)
-        """
+        """递归向上插入新节点；找到的父节点用 _add_child_to_node 连接."""
         current_layer = child_node.layer
-        
-        # 如果已经是顶层 (LW)，直接加入根列表并结束
         if current_layer == 3:
             self.layers[3].append(child_node)
             self.stats['created_nodes'][3] += 1
             return
-
+        
         target_parent_layer = current_layer + 1
         parent_radius = self.radius_config[target_parent_layer]
-
-        # 1. 在上一层寻找能包裹 child_node 的父节点
-        # 判定标准: 严格包含 (Strict Inclusion)
-        # Dist(Parent, Child) + Child.R <= Parent.R
         valid_parents = self._search_candidates(
             query_center=child_node.center_ptr,
             query_radius=child_node.radius,
             target_layer=target_parent_layer
         )
-
+        
         if valid_parents:
-            # Case A: 找到了父节点 (DAG 连接)
             for parent in valid_parents:
-                parent.children.append(child_node)
+                self._add_child_to_node(parent, child_node)
             return
-        else:
-            # Case B: 找不到父节点
-            # 创建新的父节点，以子节点的中心为中心
-            new_parent_node = WorldNode(
-                center_ptr=child_node.center_ptr,
-                radius=parent_radius,
-                layer_level=target_parent_layer
-            )
-            new_parent_node.children.append(child_node)
-            
-            # 注册到对应层级列表
-            self.layers[target_parent_layer].append(new_parent_node)
-            self.stats['created_nodes'][target_parent_layer] += 1
-            
-            # 继续递归
-            self._insert_node_upwards(new_parent_node)
+        
+        new_parent = WorldNode(
+            center_ptr=child_node.center_ptr,
+            radius=parent_radius,
+            layer_level=target_parent_layer
+        )
+        self._add_child_to_node(new_parent, child_node)
+        self.layers[target_parent_layer].append(new_parent)
+        self.stats['created_nodes'][target_parent_layer] += 1
+        self._insert_node_upwards(new_parent)
 
     def _search_candidates(self, query_center, query_radius: int, target_layer: int) -> List[WorldNode]:
-        """
-        自顶向下搜索符合几何约束的节点 (伪代码: SearchForParents)
-        
-        Args:
-            query_center: 查询中心 (BioSequence 或 GenomePointer)
-            query_radius: 查询对象的半径 (Sequence=0, SW=5, MW=15)
-            target_layer: 目标层级 (1, 2, or 3)
-            
-        Returns:
-            符合 Strict Inclusion 的目标层节点列表
-        """
-        # 从顶层 LW (Layer 3) 开始搜索
-        # 如果目标就是 Layer 3，直接在 Layer 3 中搜
-        # 如果目标是 Layer 1，则路径为 L3 -> L2 -> L1
-        
-        current_candidates = self.layers[3] # IndexRoot.LWs
+        """自顶向下搜索严格包含 query 的目标层节点（用于 _insert_node_upwards）."""
+        current_candidates = self.layers[3]
         current_layer_level = 3
+        q_obj = _to_seq_obj(query_center)
+        if q_obj is None:
+            return []
         
-        # 1. 逐层下钻 (Drill Down)
         while current_layer_level > target_layer:
             next_candidates = []
-            
-            # 遍历当前层候选者
             for node in current_candidates:
-                dist = compute_distance(node.center_ptr, query_center)
-                
-                # 粗筛 (Pruning): 三角不等式
-                # 如果 Dist(Q, Node) > Node.R + Q.R，则两球分离，不可能包含
-                # 只有重叠或相切才进去看
-                if dist <= node.radius + query_radius:
-                    # 只有 WorldNode 才有 children 列表指向下一层节点
-                    # 注意：Layer 1 的 children 是 Sequence，不能 drill down，但循环条件 current > target 保证了不会对 L1 drill down
+                d = compute_distance(_to_seq_obj(node.center_ptr), q_obj)
+                if d <= node.radius + query_radius:
                     next_candidates.extend([c for c in node.children if isinstance(c, WorldNode)])
-            
-            # 去重 (DAG 中一个节点可能有多个父节点，防止重复加入 next_candidates)
-            # WorldNode 需要有唯一 ID，这里简单用 set 转换
-            unique_candidates = {n.node_id: n for n in next_candidates}
-            current_candidates = list(unique_candidates.values())
-            
+            unique = {n.node_id: n for n in next_candidates}
+            current_candidates = list(unique.values())
             current_layer_level -= 1
-            
-            # 如果中间某一层被剪枝完了，直接返回空
             if not current_candidates:
                 return []
-
-        # 2. 最终检查 (Final Check in Target Layer)
-        final_matches = []
+        
+        final = []
         for node in current_candidates:
-            dist = compute_distance(node.center_ptr, query_center)
-            
-            # 严格包含判定 (Strict Inclusion)
-            # 父球必须完全包裹子球: Dist + Child.R <= Parent.R
-            if dist + query_radius <= node.radius:
-                final_matches.append(node)
-                
-        return final_matches
+            d = compute_distance(_to_seq_obj(node.center_ptr), q_obj)
+            if d + query_radius <= node.radius:
+                final.append(node)
+        return final
+
+    def optimize_dag_connectivity(self):
+        """
+        Phase 2: 穷举重连 DAG，建立覆盖性不变量。
+
+        Step A: 叶子补插 — 对每个叶子 s 穷举所有 SW，
+                dist(s, SW.center) <= R_SW 则插入。
+        Step B: SW -> MW 球重叠连边: dist(SW.center, MW.center) <= R_MW + R_SW
+        Step C: MW -> LW 球重叠连边: dist(MW.center, LW.center) <= R_LW + R_MW
+        Step D: 清理空节点
+        """
+        sw_nodes = self.layers[1]
+        mw_nodes = self.layers[2]
+        lw_nodes = self.layers[3]
+
+        # --- A. 叶子补插：保证每个叶子出现在所有应包含它的 SW 中 ---
+        all_leaves: Dict[str, BioSequence] = {}
+        for sw in sw_nodes:
+            for child in sw.children:
+                if isinstance(child, BioSequence):
+                    all_leaves[child.id] = child
+
+        print(f"    Leaf backfill: {len(all_leaves)} leaves x {len(sw_nodes)} SW...")
+        backfill_count = 0
+        for sw in sw_nodes:
+            existing_ids = set(
+                c.id for c in sw.children if isinstance(c, BioSequence)
+            )
+            sw_center = _to_seq_obj(sw.center_ptr)
+            if sw_center is None:
+                continue
+            for leaf_id, leaf in all_leaves.items():
+                if leaf_id in existing_ids:
+                    continue
+                d = compute_distance(leaf, sw_center)
+                if d <= sw.radius:
+                    sw.children.append(leaf)
+                    existing_ids.add(leaf_id)
+                    backfill_count += 1
+            sw.data_count = len([c for c in sw.children if isinstance(c, BioSequence)])
+        print(f"    Backfilled {backfill_count} leaf-SW links.")
+
+        # --- B. 重连 SW -> MW (球重叠: dist(SW.center, MW.center) <= R_MW + R_SW) ---
+        print(f"    Relinking {len(sw_nodes)} SW -> {len(mw_nodes)} MW (ball overlap)...")
+        for mw in mw_nodes:
+            mw.children = [c for c in mw.children if isinstance(c, BioSequence)]
+        for sw in sw_nodes:
+            sw_center = _to_seq_obj(sw.center_ptr)
+            if sw_center is None:
+                continue
+            for mw in mw_nodes:
+                mw_center = _to_seq_obj(mw.center_ptr)
+                if mw_center is None:
+                    continue
+                d = compute_distance(sw_center, mw_center)
+                if d <= mw.radius + sw.radius:
+                    mw.children.append(sw)
+
+        # --- C. 重连 MW -> LW (球重叠: dist(MW.center, LW.center) <= R_LW + R_MW) ---
+        print(f"    Relinking {len(mw_nodes)} MW -> {len(lw_nodes)} LW (ball overlap)...")
+        for lw in lw_nodes:
+            lw.children = []
+        for mw in mw_nodes:
+            if not mw.children:
+                continue
+            mw_center = _to_seq_obj(mw.center_ptr)
+            if mw_center is None:
+                continue
+            for lw in lw_nodes:
+                lw_center = _to_seq_obj(lw.center_ptr)
+                if lw_center is None:
+                    continue
+                d = compute_distance(mw_center, lw_center)
+                if d <= lw.radius + mw.radius:
+                    lw.children.append(mw)
+
+        # --- D. 清理空节点 ---
+        self.layers[2] = [n for n in mw_nodes if n.children]
+        self.layers[3] = [n for n in lw_nodes if n.children]
+        print(f"    Done. MW={len(self.layers[2])}, LW={len(self.layers[3])}")
+
+    def refine_index(self):
+        """后置精炼：用 FPS 重选锚点并重算所有子节点指纹."""
+        all_nodes = []
+        for layer in self.layers.values():
+            all_nodes.extend(layer)
+        
+        for node in all_nodes:
+            if len(node.children) <= self.ANCHOR_COUNT:
+                node.routing_anchors = list(node.children)
+            else:
+                node.routing_anchors = farthest_point_sampling(
+                    node.children, self.ANCHOR_COUNT, compute_distance
+                )
+            node.routing_fingerprints = {}
+            for child in node.children:
+                child_center = child if isinstance(child, BioSequence) else _to_seq_obj(child)
+                if child_center is None:
+                    child_center = _to_seq_obj(getattr(child, 'center_ptr', child))
+                fp = []
+                for anchor in node.routing_anchors:
+                    anchor_center = anchor if isinstance(anchor, BioSequence) else _to_seq_obj(anchor)
+                    if anchor_center is None:
+                        anchor_center = _to_seq_obj(getattr(anchor, 'center_ptr', anchor))
+                    if anchor is child:
+                        fp.append(0)
+                    else:
+                        fp.append(compute_distance(child_center, anchor_center))
+                node.routing_fingerprints[node._get_child_id(child)] = fp
 
     def _print_summary(self):
         """打印构建统计"""
